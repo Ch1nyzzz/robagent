@@ -1,56 +1,84 @@
-# robagent — base agent + 全量基准 trace 收集
+# robagent
 
-最小起点：一次 LLM 调用 + event logging + 官方 scorer，目标是收集 GAIA 和 tau2bench 的真实 trace，后续 harness 由失败驱动生长。
+**Evolving LLM-centric agent workflows into robust, code-dominated deterministic harnesses — automatically.**
 
-## 目录结构
+## The problem
+
+Most agents today are "an LLM in a while-loop": the model is handed the whole
+task and improvised end-to-end. This is fragile — the LLM is doing work that a
+parser, a router, a lookup, or a state transition could do deterministically,
+and every one of those steps is a place the system can silently fail or
+hallucinate.
+
+The robust form is the opposite: **a deterministic state machine that calls the
+LLM only at the irreducible decision points**, with everything else — retrieval,
+file reading, normalization, validation, control flow — handled by ordinary
+Python. (See [12-factor-agents](https://github.com/humanlayer/12-factor-agents)
+for the design lineage.)
+
+## What this project investigates
+
+Can a **coding agent** make that transition *on its own* — take a naive
+LLM-centric agent and, iteration by iteration, evolve it into a robust harness
+where the LLM carries minimal responsibility?
+
+The core hypothesis: **the optimizer needs a design philosophy, not just a
+"go improve it" instruction.** "Iteratively optimize this agent" is far too wide
+a target — the optimizer doesn't know *what good looks like*. Encoding the
+direction (deterministic-first, tools bridge channel gaps, honest blocks over
+fabrication) as a reusable **skill** turns ad-hoc tinkering into a repeatable
+engineering method.
+
+## How it works
 
 ```
-agent/        base agent（无 while-loop）+ event log + Together AI 客户端
-bench/        每个 benchmark 的 loader + scorer（官方 vendored / adapter）
-harness/      空——等失败 trace 出现后再增长
-traces/       每次 run 的事件日志（JSONL）+ summary
-evals.lock    scorer 文件的 sha256，CI 用
+meta_harness/                 outer evolution loop
+  ├─ spawns a headless coding agent each iteration
+  ├─ the agent follows a SKILL.md, reads failure traces, proposes ONE candidate
+  └─ scores the candidate on a held-out train/test split
+
+.claude/skills/robust-harness-gaia/   the skill under study
+  └─ first principles: LLM is the last resort; tools bridge channel gaps,
+     not reasoning gaps; honest blocks beat silent fabrication
+
+agent/        v0 baseline → evolved candidates (v1-v14, mh_iter*)
+bench/        GAIA + tau2bench official scorers (eval contract, read-only)
+harness/      derived audit gates, invariants, iteration logs
+tools/        eval harness used by the orchestrator
 ```
 
-## 准备
+The benchmark is **GAIA** (general-assistant tasks: web research, file QA,
+multi-step reasoning), split into train-30 / test-135.
 
-1. 依赖：
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Headline result
 
-2. 环境变量（`.env`）：
-   ```
-   TOGETHER_AI_API=<your_key>
-   MODEL_NAME=deepseek-ai/DeepSeek-V4-Pro
-   HF_TOKEN=<huggingface_token>      # GAIA 是 gated dataset，需要 HF 授权
-   TAU2_DATA_ROOT=/path/to/tau2-bench/data/tau2   # 可选，否则自动找
-   ```
+An A/B run — same orchestrator, same model (`deepseek-v4-pro`), same train/test
+split, the **only** variable being the skill's design philosophy:
 
-3. tau2-bench 数据（任选其一）：
-   - `pip install tau2-bench`（如果 PyPI 有）
-   - `git clone https://github.com/sierra-research/tau2-bench tau2-bench-src`
+| skill | champion train-30 | champion **test-135** |
+|---|---|---|
+| `meta-harness-gaia` (workflow + failure menu, no design direction) | 12/30 | 28/135 = 20.7% |
+| `robust-harness-gaia` (first-principles, deterministic-first) | 15/30 | **42/135 = 31.1%** |
 
-## 跑
+**+14 tasks on held-out (+50% relative)** — with the robust skill stopped early
+at 20 iterations vs the baseline's 30.
+
+Why it generalizes better: the robust skill's wins are anchored in
+**deterministic mechanisms** (file parsing, retrieval) that transfer to any
+task of that shape, rather than in the LLM happening to know an answer. The
+generalization gap (train→test decay) is correspondingly smaller.
+
+## Status
+
+Research in progress. Next: a 3-rung ladder (naive "just iterate" baseline →
+structured skill → first-principles skill) to isolate *design direction* as the
+treatment variable.
+
+## Setup
 
 ```bash
-# 烟雾测试
-python run_benchmark.py gaia --limit 1
-python run_benchmark.py tau2bench --limit 1
-
-# 全集
-python run_benchmark.py gaia
-python run_benchmark.py tau2bench
-python run_benchmark.py all
+pip install -r requirements.txt
+# .env (not committed) needs: DEEPSEEK_API_KEY, HF_TOKEN
+python run_benchmark.py gaia --agent-version v0
+python meta_harness/meta_harness.py --iterations 30 --skill robust-harness-gaia
 ```
-
-## 产物
-
-- `traces/runs/<bench>__<task>__<run>.jsonl` — 每个 task 一份事件流
-- `traces/<bench>__summary.jsonl` — 整体得分汇总
-
-## 不变式
-
-1. `bench/*/scorer.py` 是 read-only，CI 校验 `evals.lock` 里的 sha256
-2. agent 代码不允许 import scorer 模块（只能由 `run_benchmark.py` 调用）
-3. 所有外部副作用（LLM 调用、tool 调用）必须先 emit event
