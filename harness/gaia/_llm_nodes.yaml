@@ -1,0 +1,70 @@
+version: 3
+nodes:
+  - node_id: answer_direct
+    input:
+      question: str
+      extras: dict
+    output:
+      content: str
+      finish_reason: str
+      usage: dict
+    when_to_call: "after route_by_extras returns DIRECT"
+    forbidden_in_input:
+      - "any task entity name from corpus rare tokens (enforced by AST scan, not at runtime)"
+    budget:
+      max_tokens: 8192
+      temperature: 0.0
+    notes: |
+      V4-Pro is a reasoning model. v0 used max_tokens=2048 and saw 76/165 truncations
+      where the model spent all tokens on hidden thinking and emitted empty content.
+      v1 uses 8192 so the model has room for thinking AND a terse final answer.
+
+  - node_id: answer_with_parametric
+    input:
+      question: str
+    output:
+      content: str  # terse answer OR the literal "UNKNOWN"
+    when_to_call: "NEEDS_RETRIEVAL route after retrieval failed/empty/unverified"
+    budget:
+      max_tokens: 8192
+      temperature: 0.0
+    notes: |
+      Asks the model to answer from parametric memory only, with explicit UNKNOWN
+      escape. is_unknown_response() routes UNKNOWN responses to BLOCKED so we
+      preserve the calibration signal.
+
+  - node_id: plan_retrieval  # v6 introduced, v9 replaced
+    input:
+      question: str
+    output:
+      content: str  # JSON object {"query": "<3-6 words>"}
+      query: str   # post-parsed query (with deterministic fallback in v9)
+    when_to_call: "first step of NEEDS_RETRIEVAL path"
+    budget:
+      max_tokens: 256   # v9 lowered from 1024
+      temperature: 0.0
+    notes: |
+      v6's prompt produced verbose responses that frequently failed JSON parse,
+      causing fallback to question[:120] -> 0 wiki hits. v9 tightens the prompt
+      and adds deterministic proper-noun regex fallback. Truncation here is
+      explicitly excluded from gate_truncation (utility node).
+
+  - node_id: answer_with_evidence  # v6+
+    input:
+      question: str
+      sources: list[{source_id, kind, url, title, content}]
+    output:
+      content: str  # JSON {claim, source_id, source_quote, confidence}
+      claim: str
+      source_id: str | null
+      source_quote: str
+      confidence: float
+    when_to_call: "after at least one source.opened in retrieval or file-read path"
+    budget:
+      max_tokens: 4096
+      temperature: 0.0
+    notes: |
+      Constrains the model to either (a) emit a source-backed claim with one of
+      the provided source_ids, or (b) emit "UNKNOWN". The downstream
+      verify_claim_graph reducer (pure Python) rejects non-source-backed claims.
+      This is the deterministic anti-hallucination check.

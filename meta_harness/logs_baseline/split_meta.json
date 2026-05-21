@@ -1,0 +1,25 @@
+{
+  "seed": 7,
+  "n_train": 30,
+  "n_test": 135,
+  "train_per_level": {
+    "1": 9,
+    "2": 15,
+    "3": 6
+  },
+  "v0_baseline_on_train": {
+    "correct": 8,
+    "total": 30,
+    "acc": 0.2667
+  },
+  "v0_baseline_on_test": {
+    "correct": 24,
+    "total": 135,
+    "acc": 0.1778
+  },
+  "level_counts": {
+    "2": 86,
+    "3": 26,
+    "1": 53
+  }
+}

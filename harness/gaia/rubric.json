@@ -1,0 +1,29 @@
+{
+  "benchmark": "gaia",
+  "scorer_path": "bench/gaia/scorer.py",
+  "scorer_function": "question_scorer",
+  "match_kind": "exact_match_normalized",
+  "branches": [
+    {"when": "ground_truth_is_float", "compare": "float_equal", "normalize_model_answer": ["strip_currency_percent_comma"]},
+    {"when": "ground_truth_contains_comma_or_semicolon", "compare": "elementwise_equal", "normalize_each": ["lower", "strip_whitespace"], "length_mismatch": "false"},
+    {"when": "default", "compare": "string_equal", "normalize": ["strip_whitespace", "lower", "strip_punct"]}
+  ],
+  "normalizations_applied_by_scorer": [
+    "strip_whitespace",
+    "lower",
+    "strip_punct_for_string_branch",
+    "split_on_comma_or_semicolon_for_list_branch",
+    "currency_percent_comma_removal_for_numeric_branch"
+  ],
+  "format_constraints_implied": [
+    "no_explanatory_prefix",
+    "no_trailing_period",
+    "numbers_must_be_parseable_floats",
+    "list_separator_is_comma_or_semicolon",
+    "list_length_must_match_ground_truth"
+  ],
+  "rubric_fields": {
+    "agent_answer": "row.answer",
+    "ground_truth": "row.ground_truth"
+  }
+}

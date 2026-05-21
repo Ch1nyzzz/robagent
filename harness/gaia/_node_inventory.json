@@ -1,0 +1,37 @@
+{
+  "run.started": {
+    "n_occurrences": 165,
+    "branches": {}
+  },
+  "llm.requested": {
+    "n_occurrences": 165,
+    "branches": {}
+  },
+  "llm.responded": {
+    "n_occurrences": 164,
+    "branches": {
+      "finish_reason=stop": 88,
+      "finish_reason=length": 76
+    }
+  },
+  "answer.emitted": {
+    "n_occurrences": 164,
+    "branches": {}
+  },
+  "eval.scored": {
+    "n_occurrences": 164,
+    "branches": {}
+  },
+  "run.ended": {
+    "n_occurrences": 164,
+    "branches": {}
+  },
+  "llm.failed": {
+    "n_occurrences": 1,
+    "branches": {}
+  },
+  "run.failed": {
+    "n_occurrences": 1,
+    "branches": {}
+  }
+}

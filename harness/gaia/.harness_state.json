@@ -1,0 +1,23 @@
+{
+  "latest_version": "v14",
+  "convergence_streak": 0,
+  "last_full_validation": "2026-05-19T17:00:00Z",
+  "last_full_score": "48/165",
+  "pending_full_validation_for": "v14",
+  "open_mechanisms": [
+    "parametric_unknown (34) — multi-source retrieval coverage gap; needs 4th source or relaxed claim threshold",
+    "wrong_answer/DIRECT (21) — pure LLM correctness gap, deterministic loop near ceiling",
+    "vision (~11) — confirmed model_capability_gap via §IV probe (Together AI 400 non-serverless)",
+    "claim_unverified (12 with source opened) — claim-graph may be over-conservative on partial evidence"
+  ],
+  "do_not_revisit": [
+    "vision capability — Together Llama-3.2-90B-Vision needs paid dedicated endpoint; confirmed by v14 §IV probe (400 non-serverless)",
+    "_acquire_rate_slot signature bug — fixed in v14 vision_v14.py"
+  ],
+  "v14_changes": [
+    "vision_v14.py: route multimodal through chat(); detect non-serverless 400 -> model_capability_gap",
+    "plan_retrieval_v14.py: MAX_TOKENS 256 -> 1024",
+    "answer_direct_v14.py: retry once at 16384 on empty-length truncation"
+  ],
+  "sample_10_score": "3/10 (v15 = 4/10 on same sample; -1 is parametric-fallback stochasticity on 2dfc4c37)"
+}

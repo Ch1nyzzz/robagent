@@ -1,0 +1,53 @@
+# --- secrets ---
+.env
+.env.*
+*.key
+
+# --- python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- vendored / cloned external repos ---
+tau2-bench-src/
+google-cloud-sdk/
+
+# --- run data / traces (large, regenerable) ---
+traces/
+tau2-runs/
+
+# --- meta_harness run logs (large: proposer sessions, event streams) ---
+meta_harness/logs/
+meta_harness/logs_*/
+meta_harness/.empty_plugins/
+
+# keep the lightweight experiment record (frontier + evolution summary)
+!meta_harness/logs_baseline/
+meta_harness/logs_baseline/*
+!meta_harness/logs_baseline/evolution_summary.jsonl
+!meta_harness/logs_baseline/frontier_val.json
+!meta_harness/logs_baseline/split_meta.json
+!meta_harness/logs_robust/
+meta_harness/logs_robust/*
+!meta_harness/logs_robust/evolution_summary.jsonl
+!meta_harness/logs_robust/frontier_val.json
+!meta_harness/logs_robust/split_meta.json
+
+# --- archived candidates / old logs ---
+agent/_archived_*/
+**/_archived_*/
+
+# --- transient signal / scratch files ---
+.v*_remaining.txt
+.__*
+.pending_validation
+.last_validation.json
+.harness_loop_mission*.md
+.stop_b_at_20.sh
+.rebuild_v10_summary.py
+.DS_Store

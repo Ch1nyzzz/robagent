@@ -1,0 +1,4 @@
+logs/
+.empty_plugins/
+__pycache__/
+*.pyc
