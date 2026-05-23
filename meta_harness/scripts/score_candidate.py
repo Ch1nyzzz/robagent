@@ -22,8 +22,8 @@ FRONTIER: Path  # type: ignore[assignment]
 SUMMARY: Path  # type: ignore[assignment]
 
 
-def load_train_ids() -> set[str]:
-    return {ln.strip() for ln in TRAIN_FILE.read_text().splitlines() if ln.strip()}
+def load_train_ids(path: "Path") -> set[str]:
+    return {ln.strip() for ln in path.read_text().splitlines() if ln.strip()}
 
 
 def load_summary(path: Path) -> dict[str, dict]:
@@ -78,10 +78,16 @@ def main() -> None:
     p.add_argument("--iteration", type=int, default=0)
     p.add_argument("--hypothesis", default="")
     p.add_argument("--changes", default="")
+    p.add_argument("--plugin-json", default="",
+                   help="JSON plugin manifest from the robust skill; "
+                        "recorded verbatim into evolution_summary. Empty for "
+                        "the baseline skill (entry stays byte-identical to before).")
     p.add_argument("--no-frontier", action="store_true",
                    help="just score, do not update frontier (for ad-hoc evaluation)")
     p.add_argument("--logs-dir", type=Path, default=MH / "logs",
                    help="frontier_val.json + evolution_summary.jsonl live here")
+    p.add_argument("--train-file", type=Path, default=TRAIN_FILE,
+                   help="newline-delimited train task ids")
     args = p.parse_args()
 
     global FRONTIER, SUMMARY
@@ -89,7 +95,7 @@ def main() -> None:
     FRONTIER = args.logs_dir / "frontier_val.json"
     SUMMARY = args.logs_dir / "evolution_summary.jsonl"
 
-    train_ids = load_train_ids()
+    train_ids = load_train_ids(args.train_file)
     rows = load_summary(args.summary_path)
     train_score = score_on_subset(rows, train_ids)
 
@@ -110,6 +116,13 @@ def main() -> None:
         "summary_path": str(args.summary_path),
         "scored_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
+    # Robust skill only: attach the plugin manifest. Absent for the baseline
+    # skill, so its evolution_summary rows are unchanged.
+    if args.plugin_json:
+        try:
+            entry["plugin"] = json.loads(args.plugin_json)
+        except json.JSONDecodeError as e:
+            print(f"[warn] --plugin-json is not valid JSON, dropped: {e}")
     append_summary(entry)
 
 

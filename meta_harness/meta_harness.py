@@ -164,6 +164,12 @@ def score_and_update(iteration: int, pending: dict, summary_path: Path) -> None:
         "--changes", cand.get("changes", ""),
         "--logs-dir", str(LOGS),
     ]
+    # Robust skill emits a plugin manifest; the baseline skill does not. Pass it
+    # through verbatim when present so the durability axis is recorded; absent
+    # for the baseline, leaving its scoring path untouched.
+    plugin = cand.get("plugin")
+    if plugin:
+        cmd += ["--plugin-json", json.dumps(plugin)]
     ret = subprocess.run(cmd, cwd=ROOT)
     if ret.returncode != 0:
         raise SystemExit(f"score_candidate.py exited with {ret.returncode}")

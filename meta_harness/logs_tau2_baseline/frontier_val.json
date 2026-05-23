@@ -1,0 +1,160 @@
+{
+  "per_task": {
+    "task_020": {
+      "agent": "mh_tau2_iter8_baseline_cashback_dispute_precondition",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_022": {
+      "agent": "mh_tau2_iter11_baseline_cashback_dispute_closeout",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_014": {
+      "agent": "mh_tau2_iter4_baseline_transfer_reason_lookup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_026": {
+      "agent": "v0",
+      "score": 0.0,
+      "answer": null
+    },
+    "task_044": {
+      "agent": "v0",
+      "score": 0.0,
+      "answer": null
+    },
+    "task_001": {
+      "agent": "mh_tau2_iter1_baseline_kb_dedup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_038": {
+      "agent": "v0",
+      "score": 0.0,
+      "answer": null
+    },
+    "task_036": {
+      "agent": "mh_tau2_iter11_baseline_cashback_dispute_closeout",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_062": {
+      "agent": "mh_tau2_iter6_baseline_discoverable_arg_minimizer",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_018": {
+      "agent": "mh_tau2_iter4_baseline_transfer_reason_lookup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_004": {
+      "agent": "mh_tau2_iter4_baseline_transfer_reason_lookup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_029": {
+      "agent": "mh_tau2_iter11_baseline_cashback_dispute_closeout",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_057": {
+      "agent": "mh_tau2_iter1_baseline_kb_dedup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_051": {
+      "agent": "mh_tau2_iter10_baseline_closure_cli_procedure",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_031": {
+      "agent": "mh_tau2_iter1_baseline_kb_dedup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_017": {
+      "agent": "mh_tau2_iter8_baseline_cashback_dispute_precondition",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_003": {
+      "agent": "mh_tau2_iter9_baseline_card_catalog",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_028": {
+      "agent": "mh_tau2_iter3_baseline_exhaustive_audit",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_025": {
+      "agent": "v0",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_048": {
+      "agent": "v0",
+      "score": 0.0,
+      "answer": null
+    },
+    "task_002": {
+      "agent": "v0",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_037": {
+      "agent": "mh_tau2_iter1_baseline_kb_dedup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_055": {
+      "agent": "mh_tau2_iter7_baseline_cashback_dispute_workflow",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_054": {
+      "agent": "mh_tau2_iter4_baseline_transfer_reason_lookup",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_024": {
+      "agent": "mh_tau2_iter16_baseline_card_application_facilitator",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_034": {
+      "agent": "v0",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_053": {
+      "agent": "v0",
+      "score": 0.0,
+      "answer": null
+    },
+    "task_027": {
+      "agent": "mh_tau2_iter11_baseline_cashback_dispute_closeout",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_050": {
+      "agent": "v0",
+      "score": 1.0,
+      "answer": null
+    },
+    "task_045": {
+      "agent": "mh_tau2_iter20_baseline_closure_apply_dual_workflow",
+      "score": 1.0,
+      "answer": null
+    }
+  },
+  "frontier_score": {
+    "correct": 25,
+    "total": 30,
+    "acc": 0.8333
+  },
+  "updated_at": "2026-05-22T21:07:46.894090+00:00"
+}

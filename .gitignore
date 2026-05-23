@@ -38,9 +38,32 @@ meta_harness/logs_robust/*
 !meta_harness/logs_robust/frontier_val.json
 !meta_harness/logs_robust/split_meta.json
 
+# keep the same lightweight record for the tau2 frontiers and the hook frontier
+!meta_harness/logs_tau2_baseline/
+meta_harness/logs_tau2_baseline/*
+!meta_harness/logs_tau2_baseline/evolution_summary.jsonl
+!meta_harness/logs_tau2_baseline/frontier_val.json
+!meta_harness/logs_tau2_robust/
+meta_harness/logs_tau2_robust/*
+!meta_harness/logs_tau2_robust/evolution_summary.jsonl
+!meta_harness/logs_tau2_robust/frontier_val.json
+!meta_harness/logs_tau2_robust_v3/
+meta_harness/logs_tau2_robust_v3/*
+!meta_harness/logs_tau2_robust_v3/evolution_summary.jsonl
+!meta_harness/logs_tau2_robust_v3/frontier_val.json
+!meta_harness/logs_tau2_hooks/
+meta_harness/logs_tau2_hooks/*
+!meta_harness/logs_tau2_hooks/frontier_hooks.json
+!meta_harness/logs_tau2_hooks/frontier_val.json
+!meta_harness/logs_tau2_hooks/evolution_summary.jsonl
+
 # --- archived candidates / old logs ---
 agent/_archived_*/
 **/_archived_*/
+archive_*/                          # local experiment archives (large, not part of the repo)
+
+# --- hook runtime trace sink (regenerable per run) ---
+.hook-state/
 
 # --- transient signal / scratch files ---
 .v*_remaining.txt
