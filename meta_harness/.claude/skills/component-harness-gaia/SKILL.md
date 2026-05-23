@@ -314,7 +314,7 @@ CANDIDATE: component_iter<N>_<slug>
 
 - Run benchmarks (the outer loop runs `run_benchmark.py` on train-30).
 - Modify the eval rubric, `agent/component_runtime/`, prior `agent/components/*.py` (except via `replace_node`), or any `agent/v*/` / `agent/mh_iter*/`.
-- Build a new agent directory (that's the retired `robust-harness-gaia`).
+- Build a new agent directory (that pattern was retired in favour of components).
 - Loop or propose multiple patches in one invocation.
 - Encode a policy interpretation as a mechanism_layer override — route to induced_rule + inject_context only.
 - Encode a prompt-shape regex as predictive_heuristic — rejected at load.

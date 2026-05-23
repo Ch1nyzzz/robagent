@@ -1,73 +1,96 @@
-# Meta-Harness for GAIA
+# Meta-Harness
 
-Stanford IRIS-Lab Meta-Harness (https://github.com/stanford-iris-lab/meta-harness) adapted to optimize the `robagent` baseline against GAIA validation.
+The outer evolution loops that drive component-harness-tau2 (banking_knowledge)
+and component-harness-gaia (GAIA) — both inspired by Stanford IRIS-Lab
+Meta-Harness (https://github.com/stanford-iris-lab/meta-harness), adapted to
+the typed workflow-graph component model.
 
 ## Idea
 
 Each iteration:
-1. A headless `claude -p` session loads `meta-harness-gaia` SKILL.md, reads `frontier_val.json` + `evolution_summary.jsonl` + sampled failed traces from train-30, proposes ONE new agent variant under `agent/mh_iter<N>_<slug>/`, and writes `logs/pending_eval.json`.
-2. The outer loop reads `pending_eval.json` and runs `run_benchmark.py gaia --agent-version <candidate> --task-ids-file train_task_ids.txt`.
-3. Score the candidate on train-30, update the per-task frontier, append `evolution_summary.jsonl`.
+1. A headless `claude -p` session loads the appropriate component-harness
+   skill (`component-harness-tau2` or `component-harness-gaia`), reads the
+   workflow graph + frontier + failed traces, proposes ONE workflow patch
+   (add_node / replace_node / disable_node) plus a new component file
+   (`agent/components/<name>.py` for GAIA or `agent_tau2/components/<name>.py`
+   for tau2), and writes `pending_eval.json`.
+2. The outer loop applies the patch to the frontier workflow YAML, sets
+   `COMPONENT_NAMES` / `COMPONENT_WORKFLOW` / `COMPONENT_RUN_TAG` env vars,
+   and runs the benchmark with `--candidate component_runtime` (the fixed
+   graph runtime that resolves the active set from the YAML).
+3. Score the candidate workflow on train-30, update per-task frontier,
+   append `evolution_summary.jsonl`. Accept patch if not regressed; on
+   reject, roll back the YAML and (for `add_node`) delete the new file or
+   (for `replace_node`) restore from `.bak_iter<N>`.
 
-After N iterations, optionally re-score the frontier candidate on the held-out test-135 (`--final-test`).
+After N iterations, optionally re-score the frontier on the held-out test set
+(`--final-test`).
 
 ## Layout
 
 ```
 meta_harness/
   README.md
-  meta_harness.py                 # outer loop
-  claude_wrapper.py               # vendored from upstream
-  .claude/skills/meta-harness-gaia/SKILL.md  # proposer prior
+  meta_harness_components.py        # tau2 outer loop
+  meta_harness_components_gaia.py   # GAIA outer loop
+  claude_wrapper.py                 # vendored claude -p subprocess driver
+  .claude/skills/
+    component-harness-tau2/         # tau2 proposer SKILL.md + templates + patterns
+    component-harness-gaia/         # GAIA proposer SKILL.md + templates + patterns
   scripts/
-    select_split.py               # one-time: split 165 → 30 train + 135 test
-    score_candidate.py            # update frontier + summary from a candidate's run
-  train_task_ids.txt              # 30 task_ids (stratified by L1/L2/L3, seed=7)
-  test_task_ids.txt               # 135 task_ids (held-out)
-  logs/
-    split_meta.json               # baseline scores on train/test from v0 summary
-    frontier_val.json             # per-task best agent on train-30
-    evolution_summary.jsonl       # one row per iteration
-    pending_eval.json             # proposer → runner handoff (deleted after eval)
-    proposer_sessions/            # claude -p artifacts per iteration
+    select_split.py                 # GAIA train/test split
+    score_candidate.py              # update frontier + summary from a run
+    durability_audit.py             # post-champion audit (--source component)
+  workflows/
+    tau2_main.yaml                  # tau2 frontier workflow graph
+    gaia_main.yaml                  # GAIA frontier workflow graph
+  train_task_ids.txt                # GAIA: 30 task_ids stratified by L1/L2/L3
+  test_task_ids.txt                 # GAIA: 135 task_ids (held-out)
+  tau2_train_task_ids.txt           # tau2: 30 task_ids of banking_knowledge
+  tau2_test_task_ids.txt            # tau2: 67 task_ids (held-out)
+  logs_components_gaia/             # GAIA: frontier + evolution_summary + proposer sessions
+  logs_tau2_components/             # tau2: same shape, tau2 frontier
 ```
 
 ## Quick start
 
 ```bash
-# 1. (already done) build train/test split + bootstrap v0 frontier
-python meta_harness/scripts/select_split.py
-python meta_harness/scripts/score_candidate.py \
-  --agent-name v0 --summary-path traces/gaia__summary.jsonl --iteration 0 \
-  --hypothesis "baseline" --changes "single LLM call max_tokens=2048"
+# GAIA: 20-iter graph evolution + final test on test-135
+python meta_harness/meta_harness_components_gaia.py \
+    --iterations 20 --train-parallel 8 --test-parallel 8 --final-test
 
-# 2. Run one iteration end-to-end (proposer + eval on train-30)
-python meta_harness/meta_harness.py --iterations 1 --train-parallel 4
+# tau2 (Together AI endpoint): 20-iter graph evolution
+TAU2_LLM_ENDPOINT=together MH_PROPOSER_MODEL=opus \
+python meta_harness/meta_harness_components.py \
+    --iterations 20 --train-parallel 8
 
-# 3. Run several iterations then evaluate the best on test-135
-python meta_harness/meta_harness.py --iterations 5 --train-parallel 4 --final-test
+# Smoke-test the GAIA proposer only (writes pending_eval.json, no eval)
+python meta_harness/meta_harness_components_gaia.py --proposer-only
 
-# 4. Smoke-test the proposer only (writes pending_eval.json + candidate code, no eval)
-python meta_harness/meta_harness.py --proposer-only
+# Smoke-test the tau2 proposer only
+TAU2_LLM_ENDPOINT=together \
+python meta_harness/meta_harness_components.py --proposer-only
 ```
-
-## Baselines (from v0 summary projection)
-
-| split | tasks | v0 correct | v0 acc |
-|---|---|---|---|
-| train | 30 | 8 | 0.2667 |
-| test | 135 | 24 | 0.1778 |
 
 ## Candidate naming
 
-Candidates land at `agent/mh_iter<N>_<slug>/`. `run_benchmark.py` resolves `agent_version` starting with `mh` directly to `agent.<name>.base`. The existing v0-v13 line is untouched.
+Component files land at `agent/components/<name>.py` (GAIA) or
+`agent_tau2/components/<name>.py` (tau2). Each file exports
+`COMPONENT: Component` with a stable `name` field. To MODIFY an existing
+component, reuse the same `name` in a new file and use the `replace_node`
+patch op (the outer loop requires a `.bak_iter<N>` copy first; SKILL.md
+documents this).
 
-## Differences from upstream `terminal_bench_2/`
+## Endpoints
 
-| upstream | here |
-|---|---|
-| Harbor/Terminus2 agent class | `agent.<name>.base.run_task` function contract |
-| `agents/*.py` single-file candidate | `agent/<name>/base.py` directory candidate |
-| Opus 4.6, full 89 TB2 tasks, 2 trials | DeepSeek-V4-Pro (Together), 30 GAIA tasks, 1 trial |
-| Anthropic Pro/API for proposer | `claude -p` subprocess (uses your Pro/API auth) |
-| `~$500/iter, 4-6h` | depends on candidate complexity, ~minutes |
+| benchmark | runner | default endpoint | switch |
+|---|---|---|---|
+| GAIA | `run_benchmark.py` via `agent/llm.py` | DeepSeek official | — |
+| tau2 | `tau2_runner.py` | DeepSeek official (`deepseek-v4-pro`) | `TAU2_LLM_ENDPOINT=together` for `deepseek-ai/DeepSeek-V4-Pro` on Together AI |
+
+## See also
+
+- `RESULTS.md` (project root): pre-graph A/B numbers and the analysis that
+  motivated the graph refactor (interpretation-layer compounding ε).
+- `agent/component_runtime/` and `agent_tau2/component_runtime/`: the two
+  graph runtimes (types / policy matrix / registry / workflow / runner).

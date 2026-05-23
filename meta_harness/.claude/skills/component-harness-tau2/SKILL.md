@@ -400,8 +400,8 @@ See `patterns/<mount>.md` for per-mount worked examples.
 
 - Run the tau2 simulator (the outer loop does).
 - Modify `tau2-bench-src/`, the eval, the model, `tau2_runner.py`, `meta_harness/`, `agent_tau2/v0/`, `agent_tau2/component_runtime/`, prior component files (except via `replace_node` + `.bak` protocol), or any earlier `agent_tau2/mh_tau2_iter*/`.
-- Build a full `LLMAgent` subclass (that's `robust-harness-tau2`).
-- Build a hook (that's the retired `hook-harness-tau2`).
+- Build a full `LLMAgent` subclass (that pattern was retired in favour of components).
+- Build a hook (the hook system was retired; components subsume it).
 - Task-specific hardcoding — encoding gold answers or branches keyed to specific task ids.
 - Loop or propose multiple patches in one invocation.
 - Encode a policy interpretation as a `mechanism_layer` override (`rewrite_tool_args` / `block`). The matrix routes such proposals to `induced_rule` + `inject_context` only.

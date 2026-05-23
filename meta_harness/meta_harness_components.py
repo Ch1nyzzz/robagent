@@ -272,9 +272,9 @@ CRITICAL:
     meta_harness/*, agent_tau2/v0/, agent_tau2/component_runtime/, or any
     earlier component file (replace_node by reusing COMPONENT.name is
     allowed; in-place edit of someone else's component file is not).
-  - Do NOT build a new agent directory under agent_tau2/. That's
-    robust-harness-tau2; this skill only writes component files +
-    workflow_patch metadata.
+  - Do NOT build a new agent directory under agent_tau2/. This skill
+    only writes component files (under agent_tau2/components/) and
+    workflow_patch metadata in pending_eval.json.
   - **Isolation invariant**: legacy paths (agent_tau2/mh_tau2_iter*,
     meta_harness/logs_tau2_*, except logs_tau2_components) are physically
     moved out of the tree before you start. If you discover a path that

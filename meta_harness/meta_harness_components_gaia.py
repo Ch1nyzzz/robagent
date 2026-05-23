@@ -240,8 +240,9 @@ CRITICAL:
     meta_harness/*, agent/base.py, agent/component_runtime/, agent/llm.py,
     agent/events.py, or any earlier agent/v*/ / agent/mh_iter*/ / agent/components/
     (except via replace_node with the .bak protocol).
-  - Do NOT build a new agent directory under agent/. That's robust-harness-gaia;
-    this skill only writes component files + workflow_patch metadata.
+  - Do NOT build a new agent directory under agent/. This skill only
+    writes component files (under agent/components/) and workflow_patch
+    metadata in pending_eval.json.
   - **Isolation invariant**: legacy paths (agent/mh_iter*, meta_harness/logs_*
     except logs_components_gaia) are physically moved out of the tree before
     you start. If you discover a path that names "mh_iter" or a robust/baseline
