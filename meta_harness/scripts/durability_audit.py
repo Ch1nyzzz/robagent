@@ -1,36 +1,40 @@
-"""Post-champion durability audit for the robust skill.
+"""Post-champion durability audit for the robust / component skills.
 
-The robust skill classifies every candidate as one plugin on a durability axis
-(channel / reactive_guard / deterministic_glue / predictive_heuristic) and makes
-conditional plugins emit `plugin.activated` / `plugin.inert` markers per task.
+Two source modes:
 
-This script is the *passive*, free durability signal — it never re-runs a
-benchmark. It reads the plugin manifests from an evolution_summary.jsonl and
-scans an agent run's traces to measure, per plugin:
+  --source plugin (default)
+    Original robust-skill mode. Each candidate is one plugin classified on
+    the durability axis; conditional plugins emit
+    `plugin.activated` / `plugin.inert` markers per task. The audit scans
+    the trace files referenced by a run summary jsonl, counts activated
+    vs inert per plugin, and flags INERT / SUSPECT / LIVE.
 
-  - activation rate          : activated / (activated + inert)
-  - correct-when-activated   : of the activated tasks, how many the run got right
+  --source component
+    New component-harness-tau2 mode. Each candidate is one workflow node;
+    the runtime appends one row to `.component-state/<tag>/fired.jsonl`
+    per fire (fields: ts / component / mount / decision / ...). This mode
+    counts fires per component, cross-references the run summary for
+    per-task reward, and flags:
 
-and flags:
+      INERT    component never fired across the run
+      SUSPECT  fires > 0 but never on a task with score > 0
+      LIVE     fires > 0 with >= 1 correct-task fire
 
-  INERT    activation rate 0  -> dead weight for this model; safe to remove
-  SUSPECT  activates but 0 correct-when-activated -> may be harming the run
-  LIVE     activates and contributes to correct answers
-
-Re-run it after a model upgrade: a plugin that flips weak-model-LIVE to
-strong-model-INERT is a stale assumption the stronger model has absorbed; a
-`predictive_heuristic` that flips to SUSPECT is actively dragging and should be
-deprecated.
+    The trust manifest (evidence_anchor, blast_radius, rollback_when,
+    out_of_evidence_probe) is read from evolution_summary.jsonl row's
+    `plugin.component.trust` block.
 
 Usage:
-  # audit the champion of a robust run on whatever split it was last evaluated
+  # robust / GAIA (original)
   python meta_harness/scripts/durability_audit.py \
       --logs-dir meta_harness/logs_robust \
-      --summary-path traces/gaia_mh_iter11_robust_wsig_extend__summary.jsonl
+      --summary-path traces/gaia_<agent>__summary.jsonl
 
-  # or let it resolve the summary path from an agent name
-  python meta_harness/scripts/durability_audit.py \
-      --logs-dir meta_harness/logs_robust --agent mh_iter11_robust_wsig_extend
+  # component / tau2
+  python meta_harness/scripts/durability_audit.py --source component \
+      --logs-dir meta_harness/logs_tau2_components \
+      --fired meta_harness/.component-state/iter5/fired.jsonl \
+      --summary-path traces/tau2_component_runtime__summary.jsonl
 """
 from __future__ import annotations
 
@@ -64,6 +68,56 @@ def load_manifests(evolution_summary: Path) -> dict[str, dict]:
         if isinstance(plugin, dict) and plugin.get("name"):
             manifests[plugin["name"]] = plugin
     return manifests
+
+
+def load_component_manifests(evolution_summary: Path) -> dict[str, dict]:
+    """Collect component manifests from a component-harness evolution_summary.
+
+    The `plugin` key in each row holds the combined component +
+    workflow_patch payload from meta_harness_components.py. We index by
+    `component.id` (or fall back to workflow_patch.name for disable_node).
+    """
+    manifests: dict[str, dict] = {}
+    if not evolution_summary.exists():
+        return manifests
+    for line in evolution_summary.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        payload = row.get("plugin")
+        if not isinstance(payload, dict):
+            continue
+        comp = payload.get("component") or {}
+        wf = payload.get("workflow_patch") or {}
+        name = comp.get("id") or wf.get("name")
+        if name:
+            manifests[name] = {
+                "cls": comp.get("cls"),
+                "mount": comp.get("mount"),
+                "trust": comp.get("trust") or {},
+                "workflow_op": wf.get("op"),
+            }
+    return manifests
+
+
+def load_component_fires(fired_path: Path) -> list[dict]:
+    """Read .component-state/<tag>/fired.jsonl. One row per fire."""
+    rows: list[dict] = []
+    if not fired_path.exists():
+        return rows
+    for line in fired_path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
 
 
 def load_run(summary_path: Path) -> list[dict]:
@@ -152,16 +206,74 @@ def audit(manifests: dict[str, dict], run: list[dict]) -> list[dict]:
     return report
 
 
+def audit_components(manifests: dict[str, dict], fires: list[dict],
+                     run: list[dict]) -> list[dict]:
+    """Component-mode audit.
+
+    Counts fires per component, cross-references run summary for
+    per-task reward, and flags INERT / SUSPECT / LIVE. fired.jsonl rows
+    do not carry task_id today, so the "correct-when-fired" measure
+    aggregates: a component is LIVE iff it fires at all in a run that
+    has >=1 correct task. (When the runtime grows per-task tags, this
+    tightens to per-task correctness.)
+    """
+    fires_by_name = defaultdict(int)
+    decisions_by_name = defaultdict(lambda: defaultdict(int))
+    for f in fires:
+        name = f.get("component")
+        if not name:
+            continue
+        fires_by_name[name] += 1
+        d = f.get("decision")
+        if d:
+            decisions_by_name[name][d] += 1
+
+    correct_tasks = sum(1 for r in run if r["score"] > 0)
+    all_names = set(fires_by_name) | set(manifests)
+
+    report: list[dict] = []
+    for name in sorted(all_names):
+        fires_n = fires_by_name[name]
+        if fires_n == 0:
+            flag = "INERT"
+        elif correct_tasks == 0:
+            flag = "SUSPECT"
+        else:
+            flag = "LIVE"
+        m = manifests.get(name, {})
+        trust = m.get("trust") or {}
+        report.append({
+            "name": name,
+            "cls": m.get("cls", "?"),
+            "mount": m.get("mount", "?"),
+            "fires": fires_n,
+            "decision_distribution": dict(decisions_by_name[name]),
+            "flag": flag,
+            "evidence_anchor": trust.get("evidence_anchor", ""),
+            "blast_radius": trust.get("blast_radius", ""),
+            "rollback_when": trust.get("rollback_when", ""),
+            "out_of_evidence_probe": trust.get("out_of_evidence_probe", ""),
+            "has_manifest": name in manifests,
+        })
+    return report
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--source", choices=["plugin", "component"], default="plugin",
+                   help="audit source: 'plugin' (robust/GAIA, scans traces "
+                        "for plugin.activated markers) or 'component' "
+                        "(component-harness-tau2, reads .component-state fired.jsonl)")
     p.add_argument("--logs-dir", type=Path, required=True,
-                   help="robust run state dir holding evolution_summary.jsonl")
+                   help="run state dir holding evolution_summary.jsonl")
     p.add_argument("--summary-path", type=Path, default=None,
                    help="run summary jsonl to audit (e.g. a test-135 run)")
     p.add_argument("--agent", default=None,
                    help="agent name; resolves --summary-path to "
-                        "traces/gaia_<agent>__summary.jsonl when that is omitted")
+                        "traces/gaia_<agent>__summary.jsonl (plugin mode) when omitted")
+    p.add_argument("--fired", type=Path, default=None,
+                   help="component mode: path to .component-state/<tag>/fired.jsonl")
     p.add_argument("--json", action="store_true", help="emit the report as JSON")
     args = p.parse_args()
 
@@ -173,41 +285,84 @@ def main() -> None:
     if not summary_path.exists():
         raise SystemExit(f"summary not found: {summary_path}")
 
-    manifests = load_manifests(args.logs_dir / "evolution_summary.jsonl")
+    if args.source == "plugin":
+        manifests = load_manifests(args.logs_dir / "evolution_summary.jsonl")
+        run = load_run(summary_path)
+        report = audit(manifests, run)
+
+        if args.json:
+            print(json.dumps({"summary_path": str(summary_path),
+                              "tasks": len(run), "plugins": report}, indent=2))
+            return
+
+        print(f"\nDurability audit — {summary_path.name}  ({len(run)} tasks)")
+        if not report:
+            print("  no plugin markers found. Either this run predates the manifest "
+                  "schema, or no conditional plugins were instrumented.")
+            return
+        print(f"  {'plugin':<26} {'class':<20} {'act':>4} {'inert':>6} "
+              f"{'rate':>6} {'ok/act':>7}  flag")
+        print("  " + "-" * 86)
+        for r in report:
+            manifest_mark = "" if r["has_manifest"] else "  (no manifest)"
+            print(f"  {r['name']:<26} {r['class']:<20} {r['activated']:>4} "
+                  f"{r['inert']:>6} {r['activation_rate']:>6.3f} "
+                  f"{r['correct_when_activated']:>3}/{r['activated']:<3} "
+                  f"{r['flag']}{manifest_mark}")
+
+        inert = [r["name"] for r in report if r["flag"] == "INERT"]
+        suspect = [r["name"] for r in report if r["flag"] == "SUSPECT"]
+        print()
+        if inert:
+            print(f"  INERT (dead weight): {', '.join(inert)}")
+        if suspect:
+            print(f"  SUSPECT (fires but never on a correct task): {', '.join(suspect)}")
+        if not inert and not suspect:
+            print("  no INERT or SUSPECT plugins — every instrumented plugin is LIVE.")
+        return
+
+    # component mode
+    if args.fired is None:
+        raise SystemExit("--source component requires --fired PATH")
+    if not args.fired.exists():
+        raise SystemExit(f"fired.jsonl not found: {args.fired}")
+
+    manifests = load_component_manifests(args.logs_dir / "evolution_summary.jsonl")
+    fires = load_component_fires(args.fired)
     run = load_run(summary_path)
-    report = audit(manifests, run)
+    report = audit_components(manifests, fires, run)
 
     if args.json:
-        print(json.dumps({"summary_path": str(summary_path),
-                          "tasks": len(run), "plugins": report}, indent=2))
+        print(json.dumps({
+            "summary_path": str(summary_path),
+            "fired_path": str(args.fired),
+            "tasks": len(run),
+            "components": report,
+        }, indent=2))
         return
 
-    print(f"\nDurability audit — {summary_path.name}  ({len(run)} tasks)")
+    print(f"\nComponent durability audit — {args.fired.name}")
+    print(f"  run: {summary_path.name}  ({len(run)} tasks, "
+          f"{sum(1 for r in run if r['score']>0)} correct)")
     if not report:
-        print("  no plugin markers found. Either this run predates the manifest "
-              "schema, or no conditional plugins were instrumented.")
+        print("  no component fires and no manifests. Nothing to audit.")
         return
-    print(f"  {'plugin':<26} {'class':<20} {'act':>4} {'inert':>6} "
-          f"{'rate':>6} {'ok/act':>7}  flag")
-    print("  " + "-" * 86)
+    print(f"  {'component':<40} {'cls':<18} {'mount':<20} {'fires':>6}  flag")
+    print("  " + "-" * 100)
     for r in report:
         manifest_mark = "" if r["has_manifest"] else "  (no manifest)"
-        print(f"  {r['name']:<26} {r['class']:<20} {r['activated']:>4} "
-              f"{r['inert']:>6} {r['activation_rate']:>6.3f} "
-              f"{r['correct_when_activated']:>3}/{r['activated']:<3} "
-              f"{r['flag']}{manifest_mark}")
+        print(f"  {r['name']:<40} {r['cls']:<18} {r['mount']:<20} "
+              f"{r['fires']:>6}  {r['flag']}{manifest_mark}")
 
     inert = [r["name"] for r in report if r["flag"] == "INERT"]
     suspect = [r["name"] for r in report if r["flag"] == "SUSPECT"]
     print()
     if inert:
-        print(f"  INERT (dead weight for this model — candidates to remove): "
-              f"{', '.join(inert)}")
+        print(f"  INERT (dead weight): {', '.join(inert)}")
     if suspect:
-        print(f"  SUSPECT (fires but never on a correct task — may be harmful): "
-              f"{', '.join(suspect)}")
+        print(f"  SUSPECT (fires but no correct task in this run): {', '.join(suspect)}")
     if not inert and not suspect:
-        print("  no INERT or SUSPECT plugins — every instrumented plugin is LIVE.")
+        print("  no INERT or SUSPECT components — every instrumented component is LIVE.")
 
 
 if __name__ == "__main__":

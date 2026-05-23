@@ -57,12 +57,27 @@ meta_harness/logs_tau2_hooks/*
 !meta_harness/logs_tau2_hooks/frontier_val.json
 !meta_harness/logs_tau2_hooks/evolution_summary.jsonl
 
+# component-harness-tau2 graph frontier (lightweight: workflow snapshot +
+# evolution summary; ignore proposer/builder session blobs).
+!meta_harness/logs_tau2_components/
+meta_harness/logs_tau2_components/*
+!meta_harness/logs_tau2_components/frontier_workflow.json
+!meta_harness/logs_tau2_components/frontier_val.json
+!meta_harness/logs_tau2_components/evolution_summary.jsonl
+!meta_harness/logs_tau2_components/pending_eval.json
+!meta_harness/logs_tau2_components/builder_sessions/
+meta_harness/logs_tau2_components/builder_sessions/*
+!meta_harness/logs_tau2_components/builder_sessions/**/log.md
+
 # --- archived candidates / old logs ---
 agent/_archived_*/
 **/_archived_*/
 archive_*/                          # local experiment archives (large, not part of the repo)
 
-# --- hook runtime trace sink (regenerable per run) ---
+# --- component runtime trace sink (regenerable per run) ---
+.component-state/
+
+# legacy hook runtime trace sink (still here in case stragglers appear)
 .hook-state/
 
 # --- transient signal / scratch files ---

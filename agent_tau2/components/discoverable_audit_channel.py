@@ -23,29 +23,41 @@ and `give_discoverable_user_tool(T)` → `add_to_db("user_discoverable_tools",
 schema fact — it holds on every task regardless of KB content or customer
 scenario, and is verifiable from the tau2 source code.
 
-Why deterministic_glue
-----------------------
-The matcher is always-on (fires at every session start with no condition).
-The injected text is a statement of tau2 sandbox behaviour — a structural
-constant, not a policy reading.  No task-specific content, no LLM judgement
-substituted.  The class is DETERMINISTIC_GLUE, event SESSION_START, decision
-INJECT_CONTEXT.
+Why MECHANISM_LAYER (not CHANNEL)
+---------------------------------
+CHANNEL is for content the agent cannot otherwise reach for *this particular
+task* (a file attached, a URL named in the prompt). The discoverable-audit
+notice is a **framework constant** — identical text on every session, every
+task. The right class is MECHANISM_LAYER (a protocol-invariant injection)
+with a trivial always-true matcher. CHANNEL would be the wrong fit even
+though both classes admit SESSION_START + INJECT_CONTEXT — class is decided
+by what the matcher tests, not by the decision kind.
+
+Out-of-evidence probe
+---------------------
+On any OOE task, the injected text describes a framework constant; the
+worst case is the LLM ignores it. The note does not override any LLM
+judgement; it's informational. No risk of false rewrite or false block.
 
 Dead-weight signal
 ------------------
 If tau2 removes `add_to_db` from these entry-point tools, the notice becomes
-harmless informational text that no longer affects scoring.  Detectable via
-durability_audit.py if train-30 scores stop improving after injection.
+factually incorrect informational text.  Detectable via durability_audit.py
+when train-30 scores stop improving after injection.
 """
 from __future__ import annotations
 
-from agent_tau2.hook_runtime.types import (
+from agent_tau2.component_runtime.types import (
+    Capability,
+    Component,
+    ComponentClass,
+    ComponentContext,
     Decision,
-    Hook,
-    HookClass,
-    HookContext,
-    HookEvent,
+    Mount,
+    StateScope,
+    Trust,
 )
+
 
 _AUDIT_CONTEXT = (
     "<discoverable_tool_audit>\n"
@@ -76,40 +88,44 @@ _AUDIT_CONTEXT = (
 )
 
 
-def _matches(ctx: HookContext) -> bool:
+def _matches(ctx: ComponentContext) -> bool:
     return True
 
 
-def _handler(ctx: HookContext) -> Decision:
+def _handler(ctx: ComponentContext) -> Decision:
     return Decision.inject_context(_AUDIT_CONTEXT)
 
 
-HOOK = Hook(
+COMPONENT = Component(
     name="discoverable_audit_channel",
-    cls=HookClass.DETERMINISTIC_GLUE,
-    event=HookEvent.SESSION_START,
+    cls=ComponentClass.MECHANISM_LAYER,
+    mount=Mount.SESSION_START,
     matcher=_matches,
     handler=_handler,
-    generalization_argument=(
-        "(a) Stable structure: the tau2 framework's `call_discoverable_agent_tool` "
-        "calls `add_to_db('agent_discoverable_tools', record_id, ...)` on every "
-        "invocation (tools.py ~line 674); `give_discoverable_user_tool` similarly "
-        "calls `add_to_db('user_discoverable_tools', ...)`.  Both tables are "
-        "included in the DB hash used for evaluation.  This is a framework schema "
-        "fact independent of any specific task, KB document, or training simulation. "
-        "(b) Not induced_rule/predictive_heuristic: the injected text does not "
-        "encode task-specific policy or predict what the LLM will do next — it "
-        "describes a framework constant verifiable from tau2 source code."
-    ),
-    fallback=(
-        "Matcher is always True; fallback is not possible.  If the injected "
-        "text is ignored by the LLM the hook has no effect; existing task "
-        "scores are unchanged."
-    ),
-    dead_when=(
-        "tau2 removes `add_to_db` from `call_discoverable_agent_tool` and "
-        "`give_discoverable_user_tool`, making these entry points no longer "
-        "write to the evaluation DB.  Observable via durability_audit.py as "
-        "the notice becoming factually incorrect."
+    state_scope=StateScope.NONE,
+    capabilities=(Capability.NONE,),
+    priority=200,                     # fires after any other session_start injection
+    trust=Trust(
+        evidence_anchor=(
+            "tau2's `call_discoverable_agent_tool` calls "
+            "`add_to_db('agent_discoverable_tools', record_id, ...)` on every "
+            "invocation (tau2-bench-src/.../tools.py ~line 674); "
+            "`give_discoverable_user_tool` similarly writes to "
+            "`user_discoverable_tools`. Both tables participate in the eval "
+            "DB hash. This is a framework source-code fact independent of "
+            "any specific task, KB document, or training simulation."
+        ),
+        blast_radius="global",
+        rollback_when=(
+            "tau2 removes `add_to_db` from `call_discoverable_agent_tool` and "
+            "`give_discoverable_user_tool`, making these entry points no "
+            "longer write to the eval DB. Observable via durability_audit.py "
+            "as the notice becoming factually incorrect."
+        ),
+        fallback=(
+            "Matcher is always True; fallback is not applicable. If the "
+            "injected text is ignored by the LLM, the component has no "
+            "effect on task scores."
+        ),
     ),
 )

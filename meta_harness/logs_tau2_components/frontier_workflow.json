@@ -1,0 +1,9 @@
+{
+  "workflow_yaml_at_accept": "nodes:\n  - close_account_strip_optional_reason\n  - discoverable_audit_channel\nedges: []\ndisabled: []\n",
+  "active_names": [
+    "close_account_strip_optional_reason",
+    "discoverable_audit_channel"
+  ],
+  "accepted_at_iteration": 0,
+  "accepted_at": "2026-05-23T15:29:15.295822+00:00"
+}

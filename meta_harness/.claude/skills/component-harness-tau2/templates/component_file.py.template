@@ -1,0 +1,100 @@
+"""<one-line title: what this component does>.
+
+Mechanism
+---------
+<the failure mode this targets, in 2-4 sentences. Cite the train task ids
+where the failure was observed: [task_XXX, task_YYY, task_ZZZ].>
+
+Why this class (not the others)
+-------------------------------
+<the matcher tests <X>. <X> is a system field / tool schema field / protocol
+invariant / general algorithm — i.e., a fact independent of the N evidence
+simulations. Therefore the class is <CLASS>.>
+
+Out-of-evidence probe
+---------------------
+<one concrete case NOT in the evidence sims where this component's matcher
+would fire. What does the handler return on it? Why is that the right answer
+even though you have no sim covering it?>
+
+Dead-weight signal
+------------------
+<observable condition under which this component is provably dead weight
+(fires zero times across 30 task runs; tool schema changed such that the
+matcher predicate is structurally impossible; etc.).>
+"""
+from __future__ import annotations
+
+from agent_tau2.component_runtime.types import (
+    Capability,
+    Component,
+    ComponentClass,
+    ComponentContext,
+    Decision,
+    Mount,
+    StateScope,
+    Trust,
+)
+
+
+# ---- predicate --------------------------------------------------------------
+
+
+def _matches(ctx: ComponentContext) -> bool:
+    """Return True iff this component should fire on `ctx`.
+
+    Read ctx.tool_name / ctx.tool_args / ctx.incoming_message / ctx.history /
+    ctx.domain_policy. Do NOT read ctx.task_id (hidden at fire time).
+    """
+    # TODO: write the predicate. Keep it cheap and side-effect-free.
+    return False
+
+
+# ---- handler ----------------------------------------------------------------
+
+
+def _handler(ctx: ComponentContext) -> Decision:
+    """Return the Decision when the matcher returned True.
+
+    Permitted decisions are determined by (cls, mount). See SKILL.md matrix.
+    """
+    # TODO: build and return the Decision.
+    return Decision.allow()
+
+
+# ---- component declaration --------------------------------------------------
+
+
+COMPONENT = Component(
+    name="<stable_component_id>",
+    cls=ComponentClass.MECHANISM_LAYER,         # or REACTIVE_GUARD / CHANNEL / INDUCED_RULE
+    mount=Mount.PRE_TOOL_USE,                   # see Mount enum
+    matcher=_matches,
+    handler=_handler,
+    state_scope=StateScope.NONE,                # NONE | SESSION | CROSS_SESSION
+    capabilities=(Capability.NONE,),            # explicit allowlist
+    priority=100,                               # smaller fires first
+    trust=Trust(
+        evidence_anchor=(
+            "<one or two sentences naming the stable structure this component "
+            "anchors on. A system field, a tool schema field, a protocol "
+            "invariant, or a general algorithm. NOT a policy reading.>"
+        ),
+        blast_radius="local",                   # local | workflow | global
+        rollback_when=(
+            "<observable condition under which this component is dead weight "
+            "or actively harmful; e.g., 'matcher fires zero times across 30 "
+            "consecutive task runs in .component-state/<tag>/fired.jsonl'.>"
+        ),
+        out_of_evidence_probe=(
+            "<one concrete case NOT in your evidence sims where the matcher "
+            "would fire. State what the handler returns and why that is "
+            "correct even without a sim showing it. REQUIRED for INDUCED_RULE.>"
+        ),
+        fallback=(
+            "<what happens when the matcher returns False or the handler "
+            "returns allow. Typically: the LLM's original output passes "
+            "through unchanged.>"
+        ),
+    ),
+)

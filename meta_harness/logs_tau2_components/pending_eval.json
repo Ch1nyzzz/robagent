@@ -1,0 +1,33 @@
+{
+  "iteration": 1,
+  "candidate": {
+    "name": "component_iter1_cc_account_workflow_doc_index",
+    "hypothesis": "Adding a SESSION_START channel that injects the credit-card-account-workflow KB doc index (logistics_001..009 + replacements_001..005, with titles) lifts train-30 reward by enabling deterministic grep-by-id retrieval of Internal: titled docs that BM25 KB_search ranks low. Targeted train tasks: 036, 037, 038, 044, 045, 048, 050, 051, 053, 054.",
+    "mechanism": "BM25 KB_search ranks Internal:-titled credit-card workflow docs poorly against customer-phrased queries, so the agent never reads the docs that name the prerequisite discoverable-tool calls (get_user_dispute_history_7291 / get_pending_replacement_orders_5765 / log_credit_card_closure_reason_4521 / get_payment_history_6183) and workflow tools (close_credit_card_account_7834, etc.) the gold action sets require.",
+    "evidence_task_ids": ["task_044", "task_045", "task_048", "task_050", "task_051", "task_053", "task_054"],
+    "changes": "adds one CHANNEL node at SESSION_START that injects a static, navigation-only catalog of doc IDs + titles for the credit_card_account_logistics and credit_card_replacements doc families; the LLM still does its own grep and reading. No tool-arg rewrite, no block, no policy override.",
+    "expected_delta": "+3 to +6 on train-30; the index alone is necessary-not-sufficient — it removes the retrieval bottleneck but the agent must still execute the workflow correctly. OOE probe says the matcher fires on any banking session including non-credit-card tasks, where the index is unused context (no harm).",
+    "component": {
+      "id": "cc_account_workflow_doc_index",
+      "cls": "channel",
+      "mount": "session_start",
+      "state_scope": "none",
+      "capabilities": ["none"],
+      "file": "agent_tau2/components/component_iter1_cc_account_workflow_doc_index.py",
+      "trust": {
+        "evidence_anchor": "The banking_knowledge KB stores docs as JSON files at tau2-bench-src/data/tau2/domains/banking_knowledge/documents/ with stable `id` and `title` fields. Doc IDs and titles are read directly from those on-disk files; the naming convention `doc_credit_cards_credit_card_account_logistics_NNN` and `doc_credit_cards_credit_card_replacements_NNN` is a fixed organisational fact of the KB filesystem. The `grep` tool (retrieval_mixins.py:84) matches doc-ID strings exactly.",
+        "blast_radius": "workflow",
+        "rollback_when": "Tau2 reorganises the banking_knowledge documents/ directory such that the listed doc IDs no longer exist (observable as grep-by-id returning empty on listed IDs), OR the KB retrieval pipeline is upgraded to rank Internal: titled docs correctly (observable as train-30 reward on tasks 044/045/048/050/051/053/054 reaching parity without this index).",
+        "out_of_evidence_probe": "On a hypothetical credit-card downgrade task (logistics_008 — not in any train-30 evidence sim), the always-true matcher fires and the handler injects the same doc index, which includes the downgrade doc's ID and title. The agent grep's the doc-ID directly. Correctness follows because the channel is purely a navigational catalog of on-disk facts; the LLM still reads the doc and decides the workflow.",
+        "fallback": "Matcher is always True; no fallback semantics. If the LLM ignores the injection, the component has no effect on scores and shows up as dead weight in durability_audit.py."
+      }
+    },
+    "workflow_patch": {
+      "op": "add_node",
+      "name": "cc_account_workflow_doc_index",
+      "file": "agent_tau2/components/component_iter1_cc_account_workflow_doc_index.py",
+      "edges_in": [],
+      "edges_out": []
+    }
+  }
+}

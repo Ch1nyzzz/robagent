@@ -1,0 +1,55 @@
+# Builder session log — iter<N>
+
+## Workflow summary (domain reference frame, BEFORE any failure analysis)
+
+- Happy path (end-to-end, in order): …
+- Mandatory orderings / prerequisites: …
+- KB structure / required reads: …
+- Session-state requirements: …
+- Tool catalog facts that matter for this iter: …
+
+## Frontier state read
+
+- Current workflow graph: <N existing nodes, list ids + mounts>
+- Train-30 reward at frontier: <X>/30
+- Tasks the frontier still fails (sample of 4-6): [task_AAA, task_BBB, …]
+- Components that fired on those tasks (from `fired.jsonl`): …
+- Components that did NOT fire but might have been relevant: …
+
+## Hypothesis
+
+- **HYPOTHESIS:** <falsifiable claim about train-30 reward>
+- **MECHANISM:** <failure mode> observed in N≥3 task sims [task_AAA, task_BBB, task_CCC]
+- **STABLE STRUCTURE (evidence_anchor):** <the system field / tool schema / protocol invariant / general algorithm — NOT a policy reading>
+- **OUT-OF-EVIDENCE PROBE:** <a concrete case NOT in the evidence sims where the matcher fires; what the handler returns; why that's correct>
+- **PATCH_OP:** <add_node | replace_node | disable_node>
+- **COMPONENT:** name=<...>, cls=<...>, mount=<...>, state_scope=<...>, capabilities=<...>
+- **EXPECTED_DELTA:** train-30 reward <current> → <expected>
+
+## Class × mount × decision check
+
+- Class: <…>. Mount: <…>. Decision emitted by handler: <…>.
+- Matrix cell admits this combination: <yes / no>.
+
+## File written
+
+- `agent_tau2/components/<name>.py`
+- (for replace_node) `.bak_iter<N>` of the prior version
+
+## Patch op
+
+- op: <…>
+- name: <…>
+- file: <…>
+- edges_in / edges_out: <… or empty>
+
+## Why this is NOT an induced_rule masquerading as mechanism_layer
+
+<If your class is mechanism_layer, demonstrate that your evidence_anchor names
+a fact verifiable WITHOUT reading any policy doc. If you cannot, your class is
+induced_rule and your decision must be inject_context on a context-build mount.>
+
+## Why this is NOT predictive_heuristic
+
+<Confirm the matcher does not branch on raw prompt text shape. If it does,
+the load-time gate will reject the registration.>

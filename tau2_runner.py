@@ -29,12 +29,32 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 
-# DeepSeek official API via litellm's OpenAI-compatible path.
-os.environ.setdefault("OPENAI_API_KEY", os.environ.get("DEEPSEEK_API_KEY", ""))
-os.environ.setdefault("OPENAI_API_BASE", "https://api.deepseek.com")
+# LLM endpoint: deepseek (default) or together.
+#   TAU2_LLM_ENDPOINT=deepseek -> https://api.deepseek.com, model openai/deepseek-v4-pro
+#   TAU2_LLM_ENDPOINT=together -> https://api.together.xyz/v1, model openai/deepseek-ai/DeepSeek-V4-Pro
+# Both endpoints are routed via litellm's openai-compatible path; the agent/user
+# llm_args carry api_base + api_key explicitly so litellm does not pick stale
+# globals up. The OPENAI_* defaults below remain for any code path that hits
+# the global (legacy GAIA bits).
+_ENDPOINT = os.environ.get("TAU2_LLM_ENDPOINT", "deepseek").lower()
 
-DEFAULT_AGENT_LLM = os.environ.get("TAU2_AGENT_LLM", "openai/deepseek-v4-pro")
-DEFAULT_USER_LLM = os.environ.get("TAU2_USER_LLM", "openai/deepseek-v4-pro")
+if _ENDPOINT == "together":
+    _LLM_API_BASE = "https://api.together.xyz/v1"
+    _LLM_API_KEY = os.environ.get("TOGETHER_AI_API", "") or os.environ.get("TOGETHER_API_KEY", "")
+    _LLM_MODEL = os.environ.get("TAU2_LLM_MODEL", "deepseek-ai/DeepSeek-V4-Pro")
+else:
+    _LLM_API_BASE = "https://api.deepseek.com"
+    _LLM_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+    _LLM_MODEL = os.environ.get("TAU2_LLM_MODEL", "deepseek-v4-pro")
+
+# litellm dispatches OpenAI-compatible providers under the `openai/<model>` prefix.
+_LITELLM_MODEL = f"openai/{_LLM_MODEL}"
+
+os.environ.setdefault("OPENAI_API_KEY", _LLM_API_KEY)
+os.environ.setdefault("OPENAI_API_BASE", _LLM_API_BASE)
+
+DEFAULT_AGENT_LLM = os.environ.get("TAU2_AGENT_LLM", _LITELLM_MODEL)
+DEFAULT_USER_LLM = os.environ.get("TAU2_USER_LLM", _LITELLM_MODEL)
 
 
 def _load_candidate_factory(candidate: str):
@@ -74,8 +94,8 @@ def run(candidate: str, domain: str, num_tasks: int | None,
     # API then demands reasoning_content be threaded back through history (which
     # tau2 does not do). Disable thinking — tau2 is tool-use, not deep-reasoning.
     _ds_args = {
-        "api_base": "https://api.deepseek.com",
-        "api_key": os.environ.get("DEEPSEEK_API_KEY", ""),
+        "api_base": _LLM_API_BASE,
+        "api_key": _LLM_API_KEY,
         "extra_body": {"thinking": {"type": "disabled"}},
     }
     config = TextRunConfig(
