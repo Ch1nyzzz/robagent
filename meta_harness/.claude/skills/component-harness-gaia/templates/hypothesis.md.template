@@ -1,0 +1,49 @@
+# Builder session log — iter<N>
+
+## Frontier state read
+
+- Current workflow graph: <N existing nodes, list ids + mounts>
+- Train-30 acc at frontier: <X>/30
+- Tasks the frontier still fails (sample of 4-6): [task_AAA, task_BBB, …]
+- Components that fired on those tasks (from `fired.jsonl`): …
+- Components that did NOT fire but might have been relevant: …
+
+## Hypothesis
+
+- **HYPOTHESIS:** <falsifiable claim about train-30 acc>
+- **MECHANISM:** <failure mode> observed in N≥3 task traces [task_AAA, task_BBB, task_CCC]
+- **STABLE STRUCTURE (evidence_anchor):** <the system field / LLM API field / file format / general algorithm — NOT a policy reading>
+- **OUT-OF-EVIDENCE PROBE:** <a concrete case NOT in the evidence traces where the matcher fires; what the handler returns; why that's correct>
+- **PATCH_OP:** <add_node | replace_node | disable_node>
+- **COMPONENT:** name=<...>, cls=<...>, mount=<...>, state_scope=<...>, capabilities=<...>
+- **EXPECTED_DELTA:** train-30 acc <current> → <expected>
+
+## Class × mount × decision check
+
+- Class: <…>. Mount: <…>. Decision emitted by handler: <…>.
+- Matrix cell admits this combination: <yes / no>.
+
+## File written
+
+- `agent/components/<name>.py`
+- (for replace_node) `.bak_iter<N>` of the prior version
+
+## Patch op
+
+- op: <…>
+- name: <…>
+- file: <…>
+- edges_in / edges_out: <… or empty>
+
+## Why this is NOT an induced_rule masquerading as mechanism_layer
+
+<If your class is mechanism_layer, demonstrate that your evidence_anchor names
+a fact verifiable WITHOUT reading any policy / task-instruction doc. If you
+cannot, your class is induced_rule and your decision must be inject_context
+at PRE_PROMPT_BUILD.>
+
+## Why this is NOT predictive_heuristic
+
+<Confirm the matcher does not branch on raw prompt text shape (regex over
+the user message asking "is this question about X?"). If it does, the
+load-time gate will reject the registration.>

@@ -89,3 +89,14 @@ archive_*/                          # local experiment archives (large, not part
 .stop_b_at_20.sh
 .rebuild_v10_summary.py
 .DS_Store
+
+# component-harness-gaia graph frontier
+!meta_harness/logs_components_gaia/
+meta_harness/logs_components_gaia/*
+!meta_harness/logs_components_gaia/frontier_workflow.json
+!meta_harness/logs_components_gaia/frontier_val.json
+!meta_harness/logs_components_gaia/evolution_summary.jsonl
+!meta_harness/logs_components_gaia/pending_eval.json
+!meta_harness/logs_components_gaia/builder_sessions/
+meta_harness/logs_components_gaia/builder_sessions/*
+!meta_harness/logs_components_gaia/builder_sessions/**/log.md

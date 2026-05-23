@@ -1,0 +1,89 @@
+"""<one-line title: what this component does>.
+
+Mechanism
+---------
+<the failure mode this targets, in 2-4 sentences. Cite the train task ids
+where the failure was observed: [task_XXX, task_YYY, task_ZZZ].>
+
+Why this class (not the others)
+-------------------------------
+<the matcher tests <X>. <X> is a system field (e.g. extras.file_name),
+LLM API field (e.g. finish_reason), file format, or general algorithm —
+i.e. a fact independent of the N evidence traces. Therefore the class is
+<CLASS>.>
+
+Out-of-evidence probe
+---------------------
+<one concrete case NOT in the evidence traces where this component's
+matcher would fire. What does the handler return on it? Why is that the
+right answer even though you have no trace covering it?>
+
+Dead-weight signal
+------------------
+<observable condition under which this component is provably dead weight
+(fires zero times across 30 task runs; system field renamed; etc.).>
+"""
+from __future__ import annotations
+
+from agent.component_runtime.types import (
+    Capability,
+    Component,
+    ComponentClass,
+    ComponentContext,
+    Decision,
+    Mount,
+    StateScope,
+    Trust,
+)
+
+
+def _matches(ctx: ComponentContext) -> bool:
+    """Return True iff this component should fire on `ctx`.
+
+    Read ctx.extras / ctx.prompt / ctx.raw_response / ctx.answer /
+    ctx.shared. Do NOT read ctx.task_id (treat as opaque).
+    """
+    # TODO: implement the predicate. Keep it cheap and side-effect-free.
+    return False
+
+
+def _handler(ctx: ComponentContext) -> Decision:
+    """Return the Decision when the matcher returned True.
+
+    Permitted decisions are determined by (cls, mount). See SKILL.md matrix.
+    """
+    # TODO: build and return the Decision.
+    return Decision.allow()
+
+
+COMPONENT = Component(
+    name="<stable_component_id>",
+    cls=ComponentClass.MECHANISM_LAYER,         # or REACTIVE_GUARD / CHANNEL / INDUCED_RULE
+    mount=Mount.PRE_PROMPT_BUILD,               # see Mount enum
+    matcher=_matches,
+    handler=_handler,
+    state_scope=StateScope.NONE,
+    capabilities=(Capability.NONE,),
+    priority=100,
+    trust=Trust(
+        evidence_anchor=(
+            "<one or two sentences naming the stable structure this component "
+            "anchors on — a system field, LLM API field, file format, or "
+            "general algorithm. NOT a policy reading.>"
+        ),
+        blast_radius="local",                   # local | workflow | global
+        rollback_when=(
+            "<observable condition under which this component is dead weight "
+            "or actively harmful.>"
+        ),
+        out_of_evidence_probe=(
+            "<one concrete case NOT in your evidence traces where the matcher "
+            "would fire. State what the handler returns and why that is "
+            "correct even without a trace showing it. REQUIRED for INDUCED_RULE.>"
+        ),
+        fallback=(
+            "<what happens when the matcher returns False or the handler "
+            "returns allow. Typically: the default GAIA flow runs unchanged.>"
+        ),
+    ),
+)
