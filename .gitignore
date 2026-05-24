@@ -16,10 +16,12 @@ venv/
 # --- vendored / cloned external repos ---
 tau2-bench-src/
 google-cloud-sdk/
+Toolathlon-src/
 
 # --- run data / traces (large, regenerable) ---
 traces/
 tau2-runs/
+Toolathlon-runs/
 
 # --- meta_harness run logs (large: proposer sessions, event streams) ---
 meta_harness/logs/
@@ -76,6 +78,7 @@ archive_*/                          # local experiment archives (large, not part
 
 # --- component runtime trace sink (regenerable per run) ---
 .component-state/
+.component-state-toolathlon/
 
 # legacy hook runtime trace sink (still here in case stragglers appear)
 .hook-state/
