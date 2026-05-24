@@ -129,7 +129,12 @@ def build_agent(
 ) -> TaskAgent:
     wf, components_by_name = _resolve_workflow_and_components()
     by_mount = _group_by_mount(wf, components_by_name)
-    session_state: dict[str, dict] = {n: {} for n in wf.active_nodes()}
+    # Start empty so a Component's `ctx.state.setdefault(name, {...full default...})`
+    # actually installs its default dict on first call. Pre-seeding `{name: {}}` here
+    # silently breaks that pattern: setdefault on an existing key returns the empty
+    # dict and the next `state["field"] += 1` raises KeyError. Components that want
+    # to share scratch across instances should use the cross-component `ctx.shared`.
+    session_state: dict[str, dict] = {}
 
     # tool_names is filled lazily — at build_agent time the MCP gateway
     # hasn't been connected so we don't know tool names yet. Hooks read

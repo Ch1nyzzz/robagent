@@ -370,6 +370,10 @@ def run_eval(workflow: Workflow, iteration: int, agent_name: str,
         "--task-ids-file", str(TRAIN_IDS_FILE),
         "--max-concurrency", str(TRAIN_PARALLEL),
         "--save-to", str(summary_jsonl),
+        # Pin each iter's dumps under cr/iter{N}/finalpool/<tid>/ so the
+        # next iter's proposer can still read this iter's trace via
+        # evolution_summary[*].per_task[*].dump_dir.
+        "--run-tag", f"iter{iteration}",
     ]
     started = time.time()
     ret = subprocess.run(cmd, cwd=ROOT, env=env)
@@ -536,6 +540,7 @@ def final_test_eval() -> None:
         "--task-ids-file", str(TEST_IDS_FILE),
         "--max-concurrency", str(TRAIN_PARALLEL),
         "--save-to", str(summary_jsonl),
+        "--run-tag", "final_test",
     ]
     started = time.time()
     ret = subprocess.run(cmd, cwd=ROOT, env=env)

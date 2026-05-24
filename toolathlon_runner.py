@@ -69,27 +69,34 @@ from agent_toolathlon.runtime.orchestrator import (  # noqa: E402
 import subprocess  # noqa: E402  (still needed for the pre-clean docker run)
 
 
-def _dumps_dir_for(candidate: str, dumps_root: Path) -> Path:
-    return (dumps_root / candidate).resolve()
+def _dumps_dir_for(candidate: str, dumps_root: Path,
+                   run_tag: str | None = None) -> Path:
+    base = dumps_root / candidate
+    if run_tag:
+        base = base / run_tag
+    return base.resolve()
 
 
-def _task_dump_dir(candidate: str, task_id: str, dumps_root: Path) -> Path:
-    return _dumps_dir_for(candidate, dumps_root) / "finalpool" / task_id
+def _task_dump_dir(candidate: str, task_id: str, dumps_root: Path,
+                   run_tag: str | None = None) -> Path:
+    return _dumps_dir_for(candidate, dumps_root, run_tag) / "finalpool" / task_id
 
 
-def _ensure_dumps_dir(candidate: str, dumps_root: Path) -> Path:
-    d = _dumps_dir_for(candidate, dumps_root)
+def _ensure_dumps_dir(candidate: str, dumps_root: Path,
+                      run_tag: str | None = None) -> Path:
+    d = _dumps_dir_for(candidate, dumps_root, run_tag)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _pre_clean_dump(candidate: str, task_id: str, dumps_root: Path) -> None:
+def _pre_clean_dump(candidate: str, task_id: str, dumps_root: Path,
+                    run_tag: str | None = None) -> None:
     """Use the task image (has root) to scrub leftover root-owned files."""
     try:
         subprocess.run(
             [
                 "docker", "run", "--rm",
-                "-v", f"{_dumps_dir_for(candidate, dumps_root)}:/x",
+                "-v", f"{_dumps_dir_for(candidate, dumps_root, run_tag)}:/x",
                 IMAGE, "sh", "-c",
                 f"rm -rf /x/finalpool/{task_id} && mkdir -p /x/finalpool/{task_id} && "
                 f"chown -R {os.getuid()}:{os.getgid()} /x",
@@ -110,10 +117,11 @@ def _run_one_task(
     max_steps: int,
     base_url: str,
     api_key: str,
+    run_tag: str | None = None,
 ) -> dict:
     task_id = task["task_id"]
-    task_dump = _task_dump_dir(candidate, task_id, dumps_root)
-    _pre_clean_dump(candidate, task_id, dumps_root)
+    task_dump = _task_dump_dir(candidate, task_id, dumps_root, run_tag)
+    _pre_clean_dump(candidate, task_id, dumps_root, run_tag)
 
     log_path = task_dump.parent.parent / "_runner_logs" / f"{task_id}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,10 +183,11 @@ def run(
     base_url: str,
     api_key: str,
     save_to: Path | None = None,
+    run_tag: str | None = None,
 ) -> dict:
     if not TOOLATHLON_SRC.exists():
         raise SystemExit(f"Toolathlon-src missing: {TOOLATHLON_SRC}")
-    _ensure_dumps_dir(candidate, dumps_root)
+    _ensure_dumps_dir(candidate, dumps_root, run_tag)
 
     tasks = list(iter_tasks(task_ids=task_ids, tier_max=tier_max))
     if not tasks:
@@ -205,7 +214,7 @@ def run(
                 ex.submit(
                     _run_one_task,
                     t, candidate, dumps_root, model, provider, max_steps,
-                    base_url, api_key,
+                    base_url, api_key, run_tag,
                 ): t
                 for t in tasks
             }
@@ -266,6 +275,10 @@ def main() -> None:
     p.add_argument("--dumps-root", type=Path, default=DEFAULT_DUMPS_ROOT)
     p.add_argument("--save-to", type=Path, default=None,
                    help="override summary jsonl output path")
+    p.add_argument("--run-tag", default=None,
+                   help="when set, dump under <dumps-root>/<candidate>/<run-tag>/finalpool/<tid>/ "
+                        "instead of <dumps-root>/<candidate>/finalpool/<tid>/ — used by the "
+                        "evolution loop to retain prior iters' traces")
     p.add_argument("--list", action="store_true",
                    help="just print tasks at the given tier_max and exit")
     args = p.parse_args()
@@ -302,6 +315,7 @@ def main() -> None:
         base_url=args.base_url,
         api_key=args.api_key,
         save_to=args.save_to,
+        run_tag=args.run_tag,
     )
     print(json.dumps(out, indent=2, ensure_ascii=False))
 
