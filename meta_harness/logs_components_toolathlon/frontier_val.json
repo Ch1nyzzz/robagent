@@ -1,0 +1,176 @@
+{
+  "iteration": 0,
+  "n_correct": 10,
+  "n_total": 28,
+  "per_task": {
+    "canvas-arrange-exam": {
+      "passed": false,
+      "tier": "LV1",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/canvas-arrange-exam",
+      "error": null
+    },
+    "canvas-art-manager": {
+      "passed": true,
+      "tier": "LV1",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/canvas-art-manager",
+      "error": null
+    },
+    "canvas-submit-late-work": {
+      "passed": true,
+      "tier": "LV1",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/canvas-submit-late-work",
+      "error": null
+    },
+    "dataset-license-issue": {
+      "passed": false,
+      "tier": "LV2",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/dataset-license-issue",
+      "error": "eval_res.json missing under /data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/dataset-license-issue"
+    },
+    "personal-website-construct": {
+      "passed": false,
+      "tier": "LV2",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/personal-website-construct",
+      "error": null
+    },
+    "arrange-workspace": {
+      "passed": true,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/arrange-workspace",
+      "error": null
+    },
+    "oil-price": {
+      "passed": false,
+      "tier": "LV3",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/oil-price",
+      "error": "eval_res.json missing under /data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/oil-price"
+    },
+    "nvidia-market": {
+      "passed": false,
+      "tier": "LV0b",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/nvidia-market",
+      "error": null
+    },
+    "excel-market-research": {
+      "passed": false,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/excel-market-research",
+      "error": null
+    },
+    "profile-update-online": {
+      "passed": false,
+      "tier": "LV0b",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/profile-update-online",
+      "error": null
+    },
+    "find-alita-paper": {
+      "passed": true,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/find-alita-paper",
+      "error": null
+    },
+    "excel-data-transformation": {
+      "passed": true,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/excel-data-transformation",
+      "error": null
+    },
+    "git-milestone": {
+      "passed": true,
+      "tier": "LV0b",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/git-milestone",
+      "error": null
+    },
+    "fillout-online-forms": {
+      "passed": true,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/fillout-online-forms",
+      "error": null
+    },
+    "git-repo": {
+      "passed": true,
+      "tier": "LV2",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/git-repo",
+      "error": null
+    },
+    "task-tracker": {
+      "passed": false,
+      "tier": "LV3",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/task-tracker",
+      "error": "eval_res.json missing under /data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/task-tracker"
+    },
+    "mrbeast-analysis": {
+      "passed": false,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/mrbeast-analysis",
+      "error": null
+    },
+    "meeting-assign": {
+      "passed": false,
+      "tier": "LV1",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/meeting-assign",
+      "error": null
+    },
+    "woocommerce-update-cover": {
+      "passed": true,
+      "tier": "LV1",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/woocommerce-update-cover",
+      "error": null
+    },
+    "merge-hf-datasets": {
+      "passed": false,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/merge-hf-datasets",
+      "error": null
+    },
+    "inventory-sync": {
+      "passed": false,
+      "tier": "LV1",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/inventory-sync",
+      "error": null
+    },
+    "privacy-desensitization": {
+      "passed": false,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/privacy-desensitization",
+      "error": null
+    },
+    "add-bibtex": {
+      "passed": false,
+      "tier": "LV0b",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/add-bibtex",
+      "error": null
+    },
+    "sales-accounting": {
+      "passed": true,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/sales-accounting",
+      "error": null
+    },
+    "upenn-campus-route": {
+      "passed": false,
+      "tier": "LV0b",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/upenn-campus-route",
+      "error": null
+    },
+    "ppt-analysis": {
+      "passed": false,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/ppt-analysis",
+      "error": null
+    },
+    "search-ca-school": {
+      "passed": false,
+      "tier": "LV0b",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/search-ca-school",
+      "error": null
+    },
+    "interview-report": {
+      "passed": false,
+      "tier": "LV0a",
+      "dump_dir": "/data/home/yuhan/robagent/Toolathlon-runs/v0/finalpool/interview-report",
+      "error": null
+    }
+  },
+  "source_jsonl": "/data/home/yuhan/robagent/traces/toolathlon_v0_full_baseline.jsonl"
+}

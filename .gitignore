@@ -103,3 +103,14 @@ meta_harness/logs_components_gaia/*
 !meta_harness/logs_components_gaia/builder_sessions/
 meta_harness/logs_components_gaia/builder_sessions/*
 !meta_harness/logs_components_gaia/builder_sessions/**/log.md
+
+# component-harness-toolathlon graph frontier
+!meta_harness/logs_components_toolathlon/
+meta_harness/logs_components_toolathlon/*
+!meta_harness/logs_components_toolathlon/frontier_workflow.json
+!meta_harness/logs_components_toolathlon/frontier_val.json
+!meta_harness/logs_components_toolathlon/evolution_summary.jsonl
+!meta_harness/logs_components_toolathlon/pending_eval.json
+!meta_harness/logs_components_toolathlon/proposer_sessions/
+meta_harness/logs_components_toolathlon/proposer_sessions/*
+!meta_harness/logs_components_toolathlon/proposer_sessions/**/log.md
