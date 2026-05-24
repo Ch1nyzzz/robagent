@@ -269,13 +269,22 @@ Read the domain's policy document(s), the full tool catalog, and protocol invari
 meta_harness/workflows/tau2_main.yaml                                the active graph
 meta_harness/logs_tau2_components/frontier_workflow.json             frontier snapshot
 meta_harness/logs_tau2_components/frontier_val.json                  per-task best
-meta_harness/logs_tau2_components/evolution_summary.jsonl            every prior candidate
+meta_harness/logs_tau2_components/evolution_summary.jsonl            one row per iter (incl. rejected)
 meta_harness/tau2_train_task_ids.txt                                 30 tasks — your pool
 agent_tau2/components/                                                component files on disk
-.component-state/iter<N-1>/fired.jsonl                                which components fired
+.component-state/iter<K>/fired.jsonl                                  which components fired in iter K (preserved per iter)
 ```
 
-Pick 4-6 train tasks the frontier still fails (reward 0). For each, open the newest tau2 simulation at `tau2-runs/meta/component_runtime__<domain>.json/results.json` and read `simulations[].messages` / `simulations[].reward_info`. Cross-reference `fired.jsonl` to see which existing components fired (and which did not but should have).
+Per-iter simulation dumps + summaries (preserved across iters; nothing is overwritten):
+
+```
+tau2-bench-src/data/simulations/tau2-runs/meta/v0__<domain>.json/results.json       v0 baseline / iter 0
+tau2-bench-src/data/simulations/tau2-runs/meta/iter<K>/component_runtime__<domain>.json/results.json   iter K's candidate run
+traces/v0__<domain>__summary.jsonl                                                  legacy v0 summary (if present)
+traces/iter<K>__tau2_component_runtime__summary.jsonl                               iter K's summary jsonl
+```
+
+Each `results.json` carries `simulations[].messages` / `simulations[].reward_info` for every task. Pick 4-6 train tasks the frontier still fails (reward 0) and open the appropriate iter's `results.json`. Cross-reference `.component-state/iter<K>/fired.jsonl` to see which existing components fired in that iter (and which did not but should have). If `evolution_summary.jsonl` has any row with iter ≥ 1, also read those rows — each names `candidate.hypothesis` + `train_score` + `accepted`, so you can avoid re-proposing a mechanism a prior candidate already covered, and trace regressions back to the iter that introduced them.
 
 ### 3. Form ONE hypothesis
 

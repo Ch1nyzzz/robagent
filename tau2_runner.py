@@ -68,7 +68,7 @@ def _load_candidate_factory(candidate: str):
 
 def run(candidate: str, domain: str, num_tasks: int | None,
         task_ids: list[str] | None, max_concurrency: int,
-        save_to: str | None) -> dict:
+        save_to: str | None, run_tag: str | None = None) -> dict:
     from tau2.registry import registry
     from tau2.data_model.simulation import TextRunConfig
     from tau2.run import run_domain
@@ -82,7 +82,13 @@ def run(candidate: str, domain: str, num_tasks: int | None,
     if domain == "banking_knowledge":
         extra["retrieval_config"] = "bm25"
 
-    out_path = save_to or f"tau2-runs/meta/{candidate}__{domain}.json"
+    # `run_tag`, when set, inserts an iter-bucket directory so prior iters'
+    # tau2 simulation dumps survive (the simulator otherwise overwrites the
+    # single `<candidate>__<domain>.json` path). Mirrors the sopbench
+    # per-iter layout. Default (None) keeps the legacy path so v0 baselines
+    # and ad-hoc invocations behave identically.
+    tag_prefix = f"{run_tag}/" if run_tag else ""
+    out_path = save_to or f"tau2-runs/meta/{tag_prefix}{candidate}__{domain}.json"
     # Fresh run each eval — drop any stale checkpoint so the simulator does not
     # block on an interactive "resume?" prompt.
     stale = ROOT / "tau2-bench-src" / "data" / "simulations" / out_path
@@ -124,8 +130,14 @@ def run(candidate: str, domain: str, num_tasks: int | None,
     correct = sum(1 for p in per_task if p["reward"] > 0)
 
     # Summary jsonl in the same shape run_benchmark.py emits for GAIA, so
-    # score_candidate.py can score tau2 candidates unchanged.
-    summary_path = ROOT / "traces" / f"tau2_{candidate}__summary.jsonl"
+    # score_candidate.py can score tau2 candidates unchanged. When run_tag is
+    # set, prefix the file name so each iter's summary is independent (the
+    # meta-harness's score_candidate.py reads this same path via --summary-path).
+    summary_name = (
+        f"{run_tag}__tau2_{candidate}__summary.jsonl"
+        if run_tag else f"tau2_{candidate}__summary.jsonl"
+    )
+    summary_path = ROOT / "traces" / summary_name
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     with summary_path.open("w", encoding="utf-8") as f:
         for p in per_task:
@@ -157,6 +169,11 @@ def main() -> None:
                    help="newline-delimited task ids (overrides --task-ids)")
     p.add_argument("--max-concurrency", type=int, default=4)
     p.add_argument("--save-to", default=None)
+    p.add_argument("--run-tag", default=None,
+                   help="when set, simulation dump goes to "
+                        "tau2-runs/meta/<run-tag>/<candidate>__<domain>.json and "
+                        "the summary jsonl is prefixed with <run-tag>__ — used by "
+                        "the evolution loop to retain prior iters' traces.")
     args = p.parse_args()
 
     task_ids = args.task_ids
@@ -164,7 +181,8 @@ def main() -> None:
         task_ids = [ln.strip() for ln in open(args.task_ids_file) if ln.strip()]
 
     out = run(args.candidate, args.domain, args.num_tasks,
-              task_ids, args.max_concurrency, args.save_to)
+              task_ids, args.max_concurrency, args.save_to,
+              run_tag=args.run_tag)
     print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
 
 

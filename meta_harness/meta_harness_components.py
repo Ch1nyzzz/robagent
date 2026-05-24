@@ -341,6 +341,10 @@ def run_eval(workflow: Workflow, iteration: int, ids_file: Path,
         "--domain", DOMAIN,
         "--task-ids-file", str(ids_file),
         "--max-concurrency", str(parallel),
+        # Per-iter dump bucket: simulation JSON lands in
+        # tau2-runs/meta/iter<N>/<candidate>__<domain>.json
+        # and summary jsonl is prefixed iter<N>__ so prior iters survive.
+        "--run-tag", f"iter{iteration}",
     ]
     started = time.time()
     ret = subprocess.run(cmd, cwd=ROOT, env=env)
@@ -348,7 +352,7 @@ def run_eval(workflow: Workflow, iteration: int, ids_file: Path,
           flush=True)
     if ret.returncode != 0:
         raise SystemExit(f"tau2_runner exited {ret.returncode}")
-    summary = ROOT / "traces" / f"tau2_{COMPONENT_RUNTIME_CANDIDATE}__summary.jsonl"
+    summary = ROOT / "traces" / f"iter{iteration}__tau2_{COMPONENT_RUNTIME_CANDIDATE}__summary.jsonl"
     if not summary.exists():
         raise SystemExit(f"expected summary missing: {summary}")
     return summary
