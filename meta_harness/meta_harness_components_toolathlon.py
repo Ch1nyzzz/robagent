@@ -299,15 +299,14 @@ CRITICAL:
     {COMPONENTS_DIR.relative_to(ROOT)}/).
   - The target inference model (deepseek-v4-pro via Together AI) is
     LOCKED by toolathlon_runner.py. Do NOT attempt to override it.
-  - 90% of toolathlon tasks run in single_turn_mode. POST_TOOL_USE
-    inject_context is QUEUED for the next outer user turn, which in
-    single-turn tasks never comes — those tasks effectively don't see
-    POST_TOOL_USE injection. Prefer PRE_CONTEXT_BUILD / SESSION_START /
-    USER_PROMPT_SUBMIT for components that must influence the SUT in
-    single-turn mode. See SKILL.md §"v1 mount semantics".
-  - PRE_TOOL_USE REWRITE_TOOL_ARGS / DEFER and POST_LLM_RESPONSE are
-    REJECTED at registration in v1 (SDK constraints). Do NOT design
-    components that need them.
+  - v2 wraps MCP tools as SDK FunctionTools, so PRE_TOOL_USE REWRITE_TOOL_ARGS
+    and true BLOCK work even in single_turn_mode; POST_TOOL_USE
+    INJECT_CONTEXT is CONCATENATED into the tool result string and is
+    visible to the LLM on its very next inference. See SKILL.md
+    §"v2 mount semantics".
+  - DEFER and POST_LLM_RESPONSE are STILL rejected at registration in v2
+    (planned for v2.5 / v3 respectively). Do NOT design components that
+    need them.
   - No task-specific hardcoding (no train task_ids, entity names, or
     fixed strings from any individual task in the component file).
 """

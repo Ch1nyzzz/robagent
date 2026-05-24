@@ -32,27 +32,29 @@ Your job is to pick ONE such mechanism present in ≥3 train failures and add ON
 3. **Code earns its place by capturing stable structure, not by fitting recent failures.** Anything you encode must point at a fact OUTSIDE evidence — a tool's declared JSON Schema, an SDK API field, an MCP server's documented behavior, the user-instruction grammar (e.g. "return X, Y, Z in this exact format"). An IF/THEN induced from N failed train rows is a memorised map; it overfits.
 4. **Prefer mounts that work in single-turn mode.** 90% of Toolathlon tasks run with `single_turn_mode=True`; the user simulator never re-prompts. PRE_CONTEXT_BUILD / SESSION_START / USER_PROMPT_SUBMIT all reach the LLM even in single-turn. POST_TOOL_USE INJECT_CONTEXT is QUEUED for the next outer user turn, which in single-turn tasks NEVER comes. Design accordingly.
 
-## v1 mount semantics (read this carefully)
+## v2 mount semantics (read this carefully)
 
-Toolathlon v1 dispatches a SUBSET of the standard component-runtime mounts, because the OpenAI Agents SDK lifecycle hooks (`AgentHooks.on_tool_start` / `on_tool_end`) don't surface enough state to implement every mount the way tau2 does.
+Toolathlon v2 wraps every MCP tool as an SDK FunctionTool before handing it to the Agent. This lets the component runtime intercept BEFORE and AFTER the real tool invocation with the actual arguments and the actual result string — solving the single-turn limitations of v1. (Set `COMPONENT_WRAP_TOOLS=0` to fall back to v1 path; not recommended.)
 
-| mount               | when it fires                                                 | dispatched in v1? | what works                                                                                          |
-|---------------------|---------------------------------------------------------------|-------------------|-----------------------------------------------------------------------------------------------------|
-| `pre_context_build` | once per task, before Agent() is constructed                   | ✅                 | INJECT_CONTEXT → spliced into Agent.instructions                                                    |
-| `session_start`     | once per task, after PRE_CONTEXT_BUILD                         | ✅                 | INJECT_CONTEXT → spliced into Agent.instructions (after PRE_CONTEXT_BUILD's contributions)          |
-| `user_prompt_submit`| each outer user turn, after user_query obtained                | ✅                 | INJECT_CONTEXT → appended to the user message before it lands in logs                               |
-| `pre_tool_use`      | SDK `on_tool_start(ctx, agent, tool)`                          | ⚠️ partial          | ALLOW + advisory BLOCK (queues a system note for next outer turn). REWRITE_TOOL_ARGS / DEFER: NO    |
-| `post_llm_response` | SDK has NO mid-turn AssistantMessage hook                      | ❌ REJECTED         | (registration fails at load time)                                                                   |
-| `post_tool_use`     | SDK `on_tool_end(ctx, agent, tool, result)`                    | ⚠️ multi-turn only  | INJECT_CONTEXT queued; FLUSHED at the top of the NEXT outer user turn. Single-turn tasks never see this. |
-| `stop`              | reserved                                                       | ❌ not dispatched yet | (registration allowed; runtime ignores)                                                             |
-| `session_end`       | reserved                                                       | ❌ not dispatched yet | (registration allowed; runtime ignores)                                                             |
+| mount               | when it fires                                                 | dispatched? | what works                                                                                                                                                       |
+|---------------------|---------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `pre_context_build` | once per task, before Agent() is constructed                   | ✅           | INJECT_CONTEXT → spliced into Agent.instructions                                                                                                                 |
+| `session_start`     | once per task, after PRE_CONTEXT_BUILD                         | ✅           | INJECT_CONTEXT → spliced into Agent.instructions (after PRE_CONTEXT_BUILD's contributions)                                                                       |
+| `user_prompt_submit`| each outer user turn, after user_query obtained                | ✅           | INJECT_CONTEXT → appended to the user message before it lands in logs                                                                                            |
+| `pre_tool_use`      | inside FunctionTool wrapper, before MCP `call_tool`            | ✅           | ALLOW; **REWRITE_TOOL_ARGS** (real-args-aware, sequential composition across components); **true BLOCK** (tool is NOT called; component-block string returned). DEFER still rejected (v2.5). |
+| `post_llm_response` | SDK has NO mid-turn AssistantMessage hook                      | ❌ REJECTED  | (registration fails at load time — would need wrapping ModelProvider; v3.)                                                                                       |
+| `post_tool_use`     | inside FunctionTool wrapper, after MCP `call_tool`             | ✅           | INJECT_CONTEXT is **concatenated INTO the tool result string**, so the LLM sees it on its very next inference — works in single-turn AND multi-turn.             |
+| `stop`              | reserved                                                       | ❌ not dispatched yet | (registration allowed; runtime ignores)                                                                                                                          |
+| `session_end`       | reserved                                                       | ❌ not dispatched yet | (registration allowed; runtime ignores)                                                                                                                          |
 
 **Practical guidance:**
 
-* **Default to PRE_CONTEXT_BUILD / SESSION_START / USER_PROMPT_SUBMIT.** They cover the cases "fix the system prompt", "remind the model of the output format", "expand the user instruction". They work in 100% of toolathlon tasks.
-* **PRE_TOOL_USE BLOCK is advisory only.** It cannot abort the SDK's in-flight tool invocation; it queues a strong system note for the next outer user turn. In single-turn tasks the note never reaches the model.
-* **POST_TOOL_USE INJECT_CONTEXT is multi-turn only.** Read the candidate failure traces — if the failing task has `single_turn_mode=True` (check `traj_log.json::config.single_turn_mode`), POST_TOOL_USE injection cannot help it.
-* **Do NOT propose POST_LLM_RESPONSE / REWRITE_TOOL_ARGS / DEFER components.** They will fail load-time validation in `agent_toolathlon/component_runtime/policy.py`.
+* **PRE_TOOL_USE REWRITE_TOOL_ARGS / BLOCK and POST_TOOL_USE INJECT_CONTEXT now ACTUALLY WORK in single-turn tasks.** They are no longer multi-turn-only as in v1.
+* **REWRITE_TOOL_ARGS composes**: if multiple components match the same tool, they fire in `(priority, insertion)` order and each sees the previous component's rewritten args.
+* **BLOCK short-circuits**: the MCP `call_tool` is skipped entirely; the tool result handed back to the LLM is a `<component_block …>` string. The LLM sees that and can decide what to do next.
+* **DEFER is still rejected.** It needs a replay queue (post-condition re-invocation) which v2.5 will add.
+* **POST_LLM_RESPONSE is still rejected.** Wrapping ModelProvider is the v3 path.
+* PRE_CONTEXT_BUILD / SESSION_START / USER_PROMPT_SUBMIT still work in every task as in v1; prefer them when the failure mode is "wrong system prompt / wrong user instruction interpretation".
 
 ## The component model
 
@@ -84,11 +86,11 @@ class Component:
 
 | decision         | semantics in toolathlon v1                                                                                                                                                                                |
 |------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `allow`          | no-op                                                                                                                                                                                                     |
-| `block`          | PRE_TOOL_USE: queue an advisory system note for the next outer user turn (no inflight abort in v1); STOP: reserved.                                                                                       |
-| `inject_context` | PRE_CONTEXT_BUILD / SESSION_START → appended to `Agent.instructions`; USER_PROMPT_SUBMIT → appended to user_query before it lands in logs; POST_TOOL_USE → queued, flushed at top of next outer user turn. |
-| `rewrite_tool_args` | **REJECTED at load time** for toolathlon v1 (SDK doesn't expose arguments at on_tool_start).                                                                                                              |
-| `defer`          | **REJECTED at load time** for toolathlon v1 (same reason).                                                                                                                                                |
+| `allow`          | no-op                                                                                                                                                                                                       |
+| `block`          | PRE_TOOL_USE (v2): the MCP `call_tool` is SKIPPED; the tool result handed to the LLM is a `<component_block …>` string. STOP: reserved.                                                                     |
+| `inject_context` | PRE_CONTEXT_BUILD / SESSION_START → appended to `Agent.instructions`; USER_PROMPT_SUBMIT → appended to user_query before it lands in logs; POST_TOOL_USE (v2) → CONCATENATED into the tool result string.    |
+| `rewrite_tool_args` | PRE_TOOL_USE (v2): the dict you return REPLACES the LLM-emitted args before the MCP call. Multiple components compose left→right.                                                                            |
+| `defer`          | **REJECTED at load time** in v2 (replay queue lands in v2.5).                                                                                                                                                |
 
 ### StateScope
 
@@ -110,19 +112,19 @@ class Trust:
 
 `none` / `read_file` / `http_get` / `llm_call` / `tool_call` / `mutate_shared`.
 
-## The class × mount × decision matrix (toolathlon v1)
+## The class × mount × decision matrix (toolathlon v2)
 
 Load-time gate at `agent_toolathlon/component_runtime/policy.py::ALLOWED`.
 
-| class \ mount         | pre_context_build | session_start | user_prompt_submit | pre_tool_use     | post_llm_response | post_tool_use   | stop          | session_end |
-|-----------------------|-------------------|---------------|--------------------|------------------|-------------------|-----------------|---------------|-------------|
-| `mechanism_layer`     | allow, inject     | allow, inject | allow, inject      | allow, block     | **rejected**      | allow, inject   | allow, block  | allow       |
-| `reactive_guard`      | —                 | —             | allow, inject      | allow, block     | **rejected**      | allow, inject   | allow, block  | allow       |
-| `channel`             | allow, inject     | allow, inject | allow, inject      | —                | **rejected**      | —               | —             | —           |
-| `induced_rule`        | allow, inject     | —             | allow, inject      | —                | **rejected**      | —               | —             | —           |
-| `predictive_heuristic`| rejected          | rejected      | rejected           | rejected         | rejected          | rejected        | rejected      | rejected    |
+| class \ mount         | pre_context_build | session_start | user_prompt_submit | pre_tool_use            | post_llm_response | post_tool_use   | stop          | session_end |
+|-----------------------|-------------------|---------------|--------------------|-------------------------|-------------------|-----------------|---------------|-------------|
+| `mechanism_layer`     | allow, inject     | allow, inject | allow, inject      | allow, block, rewrite   | **rejected**      | allow, inject   | allow, block  | allow       |
+| `reactive_guard`      | —                 | —             | allow, inject      | allow, block, rewrite   | **rejected**      | allow, inject   | allow, block  | allow       |
+| `channel`             | allow, inject     | allow, inject | allow, inject      | —                       | **rejected**      | —               | —             | —           |
+| `induced_rule`        | allow, inject     | —             | allow, inject      | —                       | **rejected**      | —               | —             | —           |
+| `predictive_heuristic`| rejected          | rejected      | rejected           | rejected                | rejected          | rejected        | rejected      | rejected    |
 
-A component whose (class, mount) is absent raises `ComponentPolicyError` at load. A handler that emits a non-admitted decision raises at fire time. `post_llm_response` is rejected for ALL classes in v1.
+A component whose (class, mount) is absent raises `ComponentPolicyError` at load. A handler that emits a non-admitted decision raises at fire time. `post_llm_response` is rejected for ALL classes in v2 (would need v3 ModelProvider wrapping). `defer` is rejected for ALL classes in v2 (would need v2.5 replay queue).
 
 ## The workflow graph
 
@@ -271,6 +273,5 @@ For `disable_node`, omit `file` and the only `name` is the existing component's 
 - Components that memorise train-set answers (encode "if task instruction contains 'Alita', return paper_id=2505.20286").
 - Components that try to compute the final answer deterministically without calling the LLM (defeats the SUT measurement).
 - Components that touch `toolathlon_runner.py`, `Toolathlon-src/`, `agent_toolathlon/component_runtime/`, or `agent_toolathlon/runtime/`.
-- Components that depend on POST_TOOL_USE / PRE_TOOL_USE BLOCK to work on single-turn tasks (90% of toolathlon) — they will silently no-op.
-- Components that need POST_LLM_RESPONSE, PRE_TOOL_USE REWRITE_TOOL_ARGS, or DEFER — load-time rejected.
+- Components that need POST_LLM_RESPONSE or DEFER — load-time rejected in v2 (v2.5 / v3).
 - Components that fire on EVERY task (priority=0 with always-True matcher) — that's effectively a prompt rewrite, not a component. Use a matcher that anchors on a stable structural predicate.

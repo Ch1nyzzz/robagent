@@ -80,8 +80,14 @@ from utils.general.helper import print_color
 from utils.status_manager import TaskStatusManager
 
 # CR_HOOK imports — component-runtime dispatch surface
-from agent_toolathlon.component_runtime.hooks import drain_pending_post_tool_use
+from agent_toolathlon.component_runtime.hooks import (
+    ComponentDispatcher,
+    drain_pending_post_tool_use,
+)
 from agent_toolathlon.component_runtime.policy import validate_decision
+from agent_toolathlon.component_runtime.tool_wrappers import (
+    wrap_mcp_tools_as_function_tools,
+)
 from agent_toolathlon.component_runtime.types import (
     Component as CrComponent,
     ComponentContext as CrCtx,
@@ -135,6 +141,13 @@ class TaskAgent:
         # CR_HOOK: component-runtime extensions (None = pure v0 baseline behaviour).
         cr_components_by_mount: Optional[Dict["CrMount", List["CrComponent"]]] = None,
         cr_session_state: Optional[Dict[str, dict]] = None,
+        # v2: dispatcher shared between AgentHooks and the FunctionTool
+        # wrappers; cr_wrap_tools=True swaps MCP servers for FunctionTools
+        # so PRE_TOOL_USE REWRITE/BLOCK + POST_TOOL_USE INJECT work even
+        # in single_turn_mode tasks. None = legacy v1 path (mcp_servers
+        # given directly to Agent).
+        cr_dispatcher: Optional["ComponentDispatcher"] = None,
+        cr_wrap_tools: bool = False,
     ):
         self.task_config = task_config
         self.agent_config = agent_config
@@ -155,6 +168,8 @@ class TaskAgent:
         self._cr_session_state: Dict[str, dict] = (
             cr_session_state if cr_session_state is not None else {}
         )
+        self._cr_dispatcher = cr_dispatcher
+        self._cr_wrap_tools = bool(cr_wrap_tools)
         
         self.agent: Optional[Agent] = None
         self.mcp_manager: Optional[MCPServerManager] = None
@@ -595,14 +610,38 @@ class TaskAgent:
             base_instructions=self.task_config.system_prompts.agent,
         )
 
+        # v2: tool-wrapping branch. With cr_wrap_tools=True we expose
+        # every MCP tool as an SDK FunctionTool whose `on_invoke_tool`
+        # callable is ComponentMCPToolWrapper — so PRE_TOOL_USE sees the
+        # real args (REWRITE / true BLOCK) and POST_TOOL_USE inject is
+        # concatenated into the tool result string (LLM sees it on the
+        # next inference, single-turn or not). The Agent then sees ZERO
+        # mcp_servers — all tool invocations go through our wrappers.
+        mcp_servers_arg: list = []
+        extra_tools: list = []
+        if self._cr_wrap_tools:
+            if self._cr_dispatcher is None:
+                raise RuntimeError(
+                    "cr_wrap_tools=True requires cr_dispatcher; "
+                    "build_agent must provide it."
+                )
+            extra_tools = await wrap_mcp_tools_as_function_tools(
+                self.mcp_manager, self._cr_dispatcher,
+            )
+            self._debug_print(
+                f"[cr] wrapped {len(extra_tools)} MCP tools as FunctionTools"
+            )
+        else:
+            mcp_servers_arg = [*self.mcp_manager.get_all_connected_servers()]
+
         self.agent = Agent(
             name="Assistant",
             instructions=agent_instructions,
-            model=self.agent_model_provider.get_model(self.agent_config.model.real_name, 
+            model=self.agent_model_provider.get_model(self.agent_config.model.real_name,
                                                       debug = self.debug,
                                                       short_model_name=self.agent_config.model.short_name),
-            mcp_servers=[*self.mcp_manager.get_all_connected_servers()],
-            tools=local_tools,
+            mcp_servers=mcp_servers_arg,
+            tools=[*extra_tools, *local_tools],
             hooks=self.agent_hooks,
             model_settings=ModelSettings(
                 tool_choice=self.agent_config.tool.tool_choice,

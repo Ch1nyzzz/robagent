@@ -39,6 +39,15 @@ from .types import Component, Mount
 from .workflow import Workflow
 
 
+def _wrap_tools_enabled() -> bool:
+    """v2 MCP tool wrapping is enabled by default for `cr` candidate.
+    Set COMPONENT_WRAP_TOOLS=0 to fall back to the v1 path (mcp_servers
+    given directly to Agent; PRE_TOOL_USE REWRITE / true BLOCK and
+    single-turn POST_TOOL_USE inject become unavailable)."""
+    v = os.environ.get("COMPONENT_WRAP_TOOLS", "1").strip().lower()
+    return v not in ("", "0", "false", "no", "off")
+
+
 ROOT = Path(__file__).resolve().parents[2]   # robagent/
 
 
@@ -125,7 +134,7 @@ def build_agent(
     # tool_names is filled lazily — at build_agent time the MCP gateway
     # hasn't been connected so we don't know tool names yet. Hooks read
     # `_cr_tool_names_snapshot()` from the live TaskAgent at fire time.
-    agent_hooks, run_hooks = build_hooks(
+    agent_hooks, run_hooks, dispatcher = build_hooks(
         by_mount=by_mount,
         session_state=session_state,
         domain_policy=getattr(task_config, "task_str", "") or "",
@@ -148,4 +157,6 @@ def build_agent(
         single_turn_mode=single_turn_mode,
         cr_components_by_mount=by_mount,
         cr_session_state=session_state,
+        cr_dispatcher=dispatcher,
+        cr_wrap_tools=_wrap_tools_enabled(),
     )
