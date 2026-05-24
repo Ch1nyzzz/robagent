@@ -233,15 +233,20 @@ State files (relative to working directory):
   - Component fire trace:        .component-state-toolathlon/toolathlon_iter<N-1>/fired.jsonl
                                  (absent on iter 1)
 
-Per-task trace location for the CURRENT FRONTIER:
-  For each train task_id `<tid>` in frontier_val.json's per_task map,
-  the dump_dir field points at the directory holding:
+Per-task trace locations (all preserved across iterations; nothing is overwritten):
+  CURRENT FRONTIER (= last accepted candidate; usually v0 until a candidate is admitted):
+    frontier_val.json's per_task[<tid>].dump_dir
+      = Toolathlon-runs/v0/finalpool/<tid>/                          (iter 0 / v0 baseline)
+      OR Toolathlon-runs/cr/iter<K>/finalpool/<tid>/                 (iter K, if accepted)
+  ANY PRIOR CANDIDATE (accepted or rejected; one row per iter ≥ 1):
+    evolution_summary.jsonl[row_for_iter_K].per_task[<tid>].dump_dir
+      = Toolathlon-runs/cr/iter<K>/finalpool/<tid>/
+  Each <tid>/ directory holds:
     <dump_dir>/traj_log.json    (messages + tool calls + final status)
     <dump_dir>/eval_res.json    (pass/fail + verifier details)
     <dump_dir>/host_loop.log    (pretty-printed run trace)
-  On iter 1, those dumps come from the v0 bootstrap run; on iter ≥2,
-  they come from the previous accepted candidate's run under
-  Toolathlon-runs/cr/finalpool/<tid>/.
+  Component-fire records are also split per iter:
+    .component-state-toolathlon/toolathlon_iter<K>/fired.jsonl
 
 Steps:
   1. Read frontier_workflow.json, frontier_val.json, workflows/toolathlon_main.yaml,

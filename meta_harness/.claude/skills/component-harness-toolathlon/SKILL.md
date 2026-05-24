@@ -244,18 +244,39 @@ For `disable_node`, omit `file` and the only `name` is the existing component's 
 
 ## How to investigate
 
-1. **Read `meta_harness/logs_components_toolathlon/frontier_val.json`'s `per_task` map.** Each entry has `passed`, `tier`, `dump_dir`, `error`. The `dump_dir` points at the directory holding `traj_log.json`, `eval_res.json`, `host_loop.log` for that task under the CURRENT frontier.
-2. **For each failing task_id (`passed=false`)**, read the three trace files:
-   * `<dump_dir>/traj_log.json` — full message log (user / assistant / tool messages), `config.single_turn_mode`, `key_stats`, `status` (success / failed / max_turns_reached / interrupted).
-   * `<dump_dir>/eval_res.json` — `{pass: bool, details: str}` from the per-task verifier (often the most informative single file).
-   * `<dump_dir>/host_loop.log` — pretty-printed TOOL_CALL / TOOL_OUT / SUMMARY events in chronological order.
-3. **Look for ≥3 failures sharing the same mechanism.** Examples:
+State files and trace locations (read-only; the outer loop writes them):
+
+```
+meta_harness/workflows/toolathlon_main.yaml                            active workflow graph
+meta_harness/logs_components_toolathlon/frontier_workflow.json         frontier snapshot
+meta_harness/logs_components_toolathlon/frontier_val.json              per-task best for the CURRENT frontier (= last accepted candidate)
+meta_harness/logs_components_toolathlon/evolution_summary.jsonl        one row per iter (incl. rejected); each row's per_task[*].dump_dir points at THAT iter's run
+.component-state-toolathlon/toolathlon_iter<K>/fired.jsonl             which components fired in iter K (preserved per iter)
+```
+
+Per-task trace directories (preserved across iters; nothing is overwritten):
+
+```
+Toolathlon-runs/v0/finalpool/<tid>/                          v0 baseline / iter 0
+Toolathlon-runs/cr/iter<K>/finalpool/<tid>/                  iter K's candidate run (accepted OR rejected)
+Toolathlon-runs/cr/final_test/finalpool/<tid>/               held-out test pass (only after evolution finishes)
+```
+
+Each `<tid>/` directory holds `traj_log.json`, `eval_res.json`, `host_loop.log`. The `evolution_summary.jsonl` row for iter K already has `per_task[*].dump_dir` filled with the correct `cr/iter<K>/...` path — you don't have to construct it.
+
+1. **Read `frontier_val.json`'s `per_task` map.** Each entry has `passed`, `tier`, `dump_dir`, `error`. This is the CURRENT frontier — start here to see what the in-place candidate still fails.
+2. **If `evolution_summary.jsonl` has any row with iter ≥ 1, also read those rows.** Each one names a `candidate.hypothesis` + `train_score` + `accepted` + `per_task`, and its `per_task[*].dump_dir` points at the actual `cr/iter<K>/finalpool/<tid>/` trace from that iter. Compare a prior row's per_task against the v0 / frontier per_task to see which tasks that candidate broke (regression = was passing before, failing in iter K). Avoid re-proposing a mechanism a prior `hypothesis` already covered.
+3. **For each failing task_id (`passed=false`)**, read the three trace files at `<dump_dir>/`:
+   * `traj_log.json` — full message log (user / assistant / tool messages), `config.single_turn_mode`, `key_stats`, `status` (success / failed / max_turns_reached / interrupted).
+   * `eval_res.json` — `{pass: bool, details: str}` from the per-task verifier (often the most informative single file).
+   * `host_loop.log` — pretty-printed TOOL_CALL / TOOL_OUT / SUMMARY events in chronological order.
+4. **Look for ≥3 failures sharing the same mechanism.** Examples:
    - 3 failures end with the assistant returning a Markdown-formatted answer when the instruction asked for "plain text without markdown" → `pre_context_build` INJECT a strict-format reminder.
    - 3 failures call `gw-arxiv_local-read_paper` with `paper_id="2505.20286v1"` (with version) when the corpus only has versionless ids → `user_prompt_submit` INJECT a hint about arxiv id versionless form, OR `session_start` INJECT a behavioral rule about MCP tool argument shape.
    - 3 failures retry the same failing tool >5 times in a row (eval_res shows max_turns_reached) → `session_start` INJECT a "if a tool fails the same way 3 times, switch strategy" instruction (MECHANISM_LAYER, anchored on the general algorithmic principle that repeated identical failures indicate stuck-state).
-4. **Form ONE hypothesis** and tie it to a stable structure (an MCP tool's schema; the user instruction's grammar; an SDK status field; an OpenAI API field). State the structure in `trust.evidence_anchor`.
-5. **Write ONE component** at the appropriate mount with the smallest possible matcher/handler. Resist embedding task-specific entity names.
-6. **Validate registration**:
+5. **Form ONE hypothesis** and tie it to a stable structure (an MCP tool's schema; the user instruction's grammar; an SDK status field; an OpenAI API field). State the structure in `trust.evidence_anchor`.
+6. **Write ONE component** at the appropriate mount with the smallest possible matcher/handler. Resist embedding task-specific entity names.
+7. **Validate registration**:
    ```bash
    python -c "
    import sys; sys.path.insert(0, '.')
@@ -266,7 +287,7 @@ For `disable_node`, omit `file` and the only `name` is the existing component's 
    print('ok')
    "
    ```
-7. **Write `pending_eval.json`** and print `CANDIDATE: <name>`.
+8. **Write `pending_eval.json`** and print `CANDIDATE: <name>`.
 
 ## What NOT to write
 
