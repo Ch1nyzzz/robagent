@@ -299,6 +299,15 @@ def run_eval(workflow: Workflow, iteration: int, ids_file: Path,
     env["COMPONENT_NAMES"] = ",".join(active)
     env["COMPONENT_WORKFLOW"] = str(WORKFLOW_YAML)
     env["COMPONENT_RUN_TAG"] = f"iter{iteration}"
+    # Per-iter dump bucket (mirrors sopbench's by-design per-iter layout):
+    #   * TRACES_DIR  — events.py honours this for per-task <bench>__<tid>__<rid>.jsonl
+    #   * BENCHMARK_SUMMARY_PATH — run_benchmark.py honours this for the summary jsonl
+    iter_traces_dir = ROOT / "traces" / "runs" / f"iter{iteration}"
+    iter_summary = ROOT / "traces" / (
+        f"iter{iteration}__gaia_{COMPONENT_RUNTIME_AGENT_VERSION}__summary.jsonl"
+    )
+    env["TRACES_DIR"] = str(iter_traces_dir)
+    env["BENCHMARK_SUMMARY_PATH"] = str(iter_summary)
     cmd = [
         sys.executable, str(ROOT / "run_benchmark.py"),
         "gaia",
@@ -312,17 +321,26 @@ def run_eval(workflow: Workflow, iteration: int, ids_file: Path,
           flush=True)
     if ret.returncode != 0:
         raise SystemExit(f"run_benchmark.py exited {ret.returncode}")
-    summary = ROOT / "traces" / f"gaia_{COMPONENT_RUNTIME_AGENT_VERSION}__summary.jsonl"
-    if not summary.exists():
-        raise SystemExit(f"expected summary missing: {summary}")
-    return summary
+    if not iter_summary.exists():
+        raise SystemExit(f"expected summary missing: {iter_summary}")
+    return iter_summary
 
 
 def _previous_frontier_correct() -> int:
-    if not FRONTIER_VAL.exists():
+    """Champion-gate: train_score of the most recent accepted candidate.
+
+    Iter 0 (v0 seed) counts as accepted. Skips rejected candidates so their
+    train_score never inflates the gate the next candidate must clear.
+    """
+    if not EVOLUTION_SUMMARY.exists():
         return 0
-    fv = json.loads(FRONTIER_VAL.read_text())
-    return int(fv.get("frontier_score", {}).get("correct", 0))
+    for line in reversed(EVOLUTION_SUMMARY.read_text().splitlines()):
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("accepted") is True or int(row.get("iteration", -1)) == 0:
+            return int(row.get("train_score", {}).get("correct", 0))
+    return 0
 
 
 def _backup_replace_file(patch: Patch, iteration: int) -> tuple[Path, Path] | None:

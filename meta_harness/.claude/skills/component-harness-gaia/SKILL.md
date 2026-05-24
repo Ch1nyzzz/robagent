@@ -136,6 +136,7 @@ Plus a JSON snapshot `meta_harness/logs_components_gaia/frontier_workflow.json` 
 - Exactly ONE patch per invocation.
 - **You do NOT run benchmarks.** No `run_benchmark.py`, no `tools/eval.py`. The outer loop scores.
 - **No task-specific code.** No entity names ("Finding Nemo", "USGS"), no per-task branching, no encoded gold answers.
+- **The target inference model is LOCKED.** It is the System Under Test. Do NOT pass a `model=` kwarg to `chat()` and do NOT call any other model API. `agent.llm.chat()` enforces this at call time — passing any model other than `DEFAULT_MODEL` raises `RuntimeError`. (No flash/lite/cheaper-variant fallbacks. No second-opinion calls to a different model. The endpoint and model name are fixed per run via `MODEL_NAME` env; the proposer does not see and does not control them.)
 - General documented policy may enter as **advisory context** via `channel` or `induced_rule` (advisory only). Compiling policy text into a mechanical override is not admissible.
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
@@ -194,14 +195,22 @@ COMPONENT = Component(
 meta_harness/workflows/gaia_main.yaml                       active graph
 meta_harness/logs_components_gaia/frontier_workflow.json    frontier snapshot
 meta_harness/logs_components_gaia/frontier_val.json         per-task best
-meta_harness/logs_components_gaia/evolution_summary.jsonl   every prior candidate
+meta_harness/logs_components_gaia/evolution_summary.jsonl   one row per iter (incl. rejected)
 meta_harness/train_task_ids.txt                              30 tasks — your pool
 agent/components/                                           component files on disk
-.component-state/iter<N-1>/fired.jsonl                      which components fired
-traces/runs/gaia__<task_id>__*.jsonl                        per-task traces
+.component-state/iter<K>/fired.jsonl                        which components fired in iter K (preserved per iter)
 ```
 
-Pick 4-6 train tasks the frontier still fails (`score == 0`). Inspect their newest trace at `traces/runs/`. Cross-reference `fired.jsonl` to see which existing components fired on those tasks.
+Per-iter trace + summary locations (preserved across iters; nothing is overwritten):
+
+```
+traces/runs/iter<K>/gaia__<task_id>__<run_id>.jsonl                 per-task event log from iter K's eval
+traces/iter<K>__gaia_<agent_version>__summary.jsonl                 iter K's summary jsonl (score + answer + trace_path per task)
+traces/runs/gaia__<task_id>__<run_id>.jsonl                         legacy v0 baseline / ad-hoc runs (no iter bucket)
+traces/gaia__summary.jsonl                                          legacy v0 baseline summary (no iter bucket)
+```
+
+Pick 4-6 train tasks the frontier still fails (`score == 0`). Inspect their trace at `traces/runs/iter<K>/`. Cross-reference `.component-state/iter<K>/fired.jsonl` to see which existing components fired in that iter. If `evolution_summary.jsonl` has any row with iter ≥ 1, also read those rows — each names `candidate.hypothesis` + `train_score` + `accepted`, so you can avoid re-proposing a mechanism a prior candidate already covered, and trace regressions back to the iter that introduced them.
 
 ### 2. Form ONE hypothesis
 

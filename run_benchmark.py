@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,6 +40,15 @@ DEFAULT_PARALLEL = 16
 
 
 def _summary_path(benchmark: str) -> Path:
+    # The evolution loop overrides this via BENCHMARK_SUMMARY_PATH so each iter's
+    # summary file is independent (mirrors sopbench's per-iter layout). Mirrors
+    # the env-override convention `events.py:traces_dir()` already uses for
+    # per-task trace files via TRACES_DIR.
+    override = os.environ.get("BENCHMARK_SUMMARY_PATH")
+    if override:
+        p = Path(override)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
     return RESULTS_DIR / f"{benchmark}__summary.jsonl"
 
 
