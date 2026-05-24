@@ -15,11 +15,9 @@ State lives under `meta_harness/logs_components_gaia/`.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import datetime as dt
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -72,89 +70,13 @@ def _current_iteration() -> int:
 
 
 # ----------------------------------------------------------------------------
-# Isolation: hide prior-iter artefacts during the proposer run.
+# Isolation
 # ----------------------------------------------------------------------------
-
-_ISOLATE_GLOBS = [
-    ("agent", "mh_iter*"),                 # prior robust/baseline candidates
-    ("meta_harness", "logs_*"),             # prior frontiers; keep-list below
-]
-_ISOLATE_KEEP_LOGS_DIR = "logs_components_gaia"
-
-_ISOLATE_MEMORY_FILES: list[str] = []      # GAIA has no iter-viewpoint memories yet
-_MEMORY_DIR = Path.home() / ".claude" / "projects" / "-Users-erv1n-robagent" / "memory"
-
-
-def _isolation_targets(root: Path) -> list[Path]:
-    targets: list[Path] = []
-    for top, pat in _ISOLATE_GLOBS:
-        for p in sorted((root / top).glob(pat)):
-            if p.name == _ISOLATE_KEEP_LOGS_DIR:
-                continue
-            targets.append(p)
-    for name in _ISOLATE_MEMORY_FILES:
-        p = _MEMORY_DIR / name
-        if p.exists():
-            targets.append(p)
-    return targets
-
-
-def _hide_memory_index_lines(memory_md: Path, hidden_basenames: set[str]) -> str | None:
-    if not memory_md.exists() or not hidden_basenames:
-        return None
-    original = memory_md.read_text()
-    kept_lines = [
-        line for line in original.splitlines()
-        if not any(f"({name})" in line for name in hidden_basenames)
-    ]
-    memory_md.write_text("\n".join(kept_lines) + "\n")
-    return original
-
-
-@contextlib.contextmanager
-def _isolate_proposer(root: Path):
-    targets = _isolation_targets(root)
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    stash = root / f".component_gaia_proposer_hidden_{ts}"
-    stash.mkdir(parents=True, exist_ok=False)
-    manifest_path = stash / "moved.json"
-
-    moved: list[tuple[Path, Path]] = []
-    memory_md = _MEMORY_DIR / "MEMORY.md"
-    memory_original: str | None = None
-
-    try:
-        manifest: list[dict] = []
-        for src in targets:
-            stem = f"{abs(hash(str(src))) & 0xffff_ffff:08x}__{src.name}"
-            dst = stash / stem
-            src.rename(dst)
-            moved.append((src, dst))
-            manifest.append({"src": str(src), "dst": str(dst)})
-        manifest_path.write_text(json.dumps(manifest, indent=2))
-
-        memory_original = _hide_memory_index_lines(
-            memory_md, hidden_basenames=set(_ISOLATE_MEMORY_FILES)
-        )
-
-        print(f"  isolation: hid {len(moved)} paths into {stash.name}/", flush=True)
-        yield
-    finally:
-        for src, dst in reversed(moved):
-            try:
-                if dst.exists():
-                    dst.rename(src)
-            except Exception as e:
-                print(f"  WARN: failed to restore {src}: {e}", flush=True)
-        if memory_original is not None:
-            try:
-                memory_md.write_text(memory_original)
-            except Exception as e:
-                print(f"  WARN: failed to restore MEMORY.md: {e}", flush=True)
-        try:
-            shutil.rmtree(stash)
-        except Exception as e:
-            print(f"  WARN: stash {stash} not removed: {e}", flush=True)
+# Proposer isolation is now enforced by running claude inside a docker
+# container with a per-skill whitelist of bind mounts (see
+# meta_harness/_proposer_docker.py).  The previous physical-mv approach was
+# removed because it also hid sibling-skill state from the sibling's own
+# main loop, racing with parallel runs.
 
 
 # ----------------------------------------------------------------------------
@@ -243,10 +165,13 @@ CRITICAL:
   - Do NOT build a new agent directory under agent/. This skill only
     writes component files (under agent/components/) and workflow_patch
     metadata in pending_eval.json.
-  - **Isolation invariant**: legacy paths (agent/mh_iter*, meta_harness/logs_*
-    except logs_components_gaia) are physically moved out of the tree before
-    you start. If you discover a path that names "mh_iter" or a robust/baseline
-    frontier log, the isolation has a bug — do not read it.
+  - **Isolation invariant**: this proposer runs inside a docker container
+    whose filesystem only contains the paths the gaia skill is allowed to
+    see. Sibling skill logs (logs_components_toolathlon/, logs_components_tau2/,
+    logs_components_sopbench_*/), legacy candidates (agent/mh_iter*), and
+    legacy frontier logs (logs_robust*, logs_baseline*, logs_tau2_*) simply
+    do not exist in the container. If you encounter such a path,
+    _proposer_docker.py has a manifest bug — do not read it.
   - No task-specific hardcoding. No entity names or task ids in code.
 """
 
@@ -269,6 +194,9 @@ def run_proposer(iteration: int, log_dir: Path, skill_name: str,
             disable_skills=True,
             disable_mcp=True,
             progress=True,
+            docker_skill=skill_name,
+            docker_container_name=f"robagent-proposer-gaia-iter{iteration}-"
+                                  f"{int(time.time())}",
         )
         print(f"  attempt {attempt}/{max_attempts}: exit={result.exit_code} "
               f"cost=${result.cost_usd:.4f} dur={result.duration_seconds:.0f}s",
@@ -481,9 +409,8 @@ def main() -> None:
         iteration = _current_iteration()
         prev_workflow = _load_frontier_workflow()
 
-        with _isolate_proposer(ROOT):
-            pending = run_proposer(iteration, proposer_log_dir,
-                                   args.skill, args.candidate_slug_prefix)
+        pending = run_proposer(iteration, proposer_log_dir,
+                               args.skill, args.candidate_slug_prefix)
         if args.proposer_only:
             print("--proposer-only; stopping"); return
 

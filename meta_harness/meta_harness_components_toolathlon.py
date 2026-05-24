@@ -32,7 +32,6 @@ State lives under `meta_harness/logs_components_toolathlon/`.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import datetime as dt
 import json
 import os
@@ -335,6 +334,9 @@ def run_proposer(iteration: int, log_dir: Path, skill_name: str,
             disable_skills=True,
             disable_mcp=True,
             progress=True,
+            docker_skill=skill_name,
+            docker_container_name=f"robagent-proposer-toolathlon-iter{iteration}-"
+                                  f"{int(time.time())}",
         )
         print(f"  attempt {attempt}/{max_attempts}: exit={result.exit_code} "
               f"cost=${result.cost_usd:.4f} dur={result.duration_seconds:.0f}s",

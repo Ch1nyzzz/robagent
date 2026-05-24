@@ -521,6 +521,9 @@ def run(
     disable_mcp=True,
     progress=True,
     effort=None,
+    docker_skill=None,
+    docker_domain=None,
+    docker_container_name=None,
 ):
     """Run `claude -p` and return parsed SessionResult. Logs to log_dir.
 
@@ -570,6 +573,20 @@ def run(
     )
 
     effective_cwd = cwd or os.getcwd()
+
+    # Optional: wrap the claude argv into a docker run invocation that
+    # bind-mounts a per-skill whitelist of host paths.  This replaces the
+    # legacy "physical mv" isolation used by some sibling main loops —
+    # see meta_harness/_proposer_docker.py for the rationale.
+    if docker_skill is not None:
+        from _proposer_docker import build_docker_cmd as _build_docker_cmd
+        cmd = _build_docker_cmd(
+            skill_name=docker_skill,
+            root=Path(effective_cwd),
+            inner_claude_argv=cmd,
+            container_name=docker_container_name,
+            domain=docker_domain,
+        )
 
     env = os.environ.copy()
     # Use API key if available (cheaper, no subscription needed), else subscription auth

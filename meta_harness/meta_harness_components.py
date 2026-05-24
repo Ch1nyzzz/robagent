@@ -26,11 +26,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import contextlib
 import datetime as dt
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -84,100 +82,13 @@ def _current_iteration() -> int:
 
 
 # ----------------------------------------------------------------------------
-# Isolation: physically hide prior-iter artefacts during the proposer run.
+# Isolation
 # ----------------------------------------------------------------------------
-
-_ISOLATE_GLOBS = [
-    ("agent_tau2", "mh_tau2_iter*"),       # legacy LLMAgent-subclass candidates
-    ("meta_harness", "logs_tau2*"),         # legacy frontiers; logs_tau2_components kept
-]
-_ISOLATE_KEEP_LOGS_DIR = "logs_tau2_components"
-
-_ISOLATE_MEMORY_FILES = [
-    "tau2-frontier-fail-decomposition.md",  # 100% iter / frontier viewpoint
-    "hook-harness-tau2-design.md",          # legacy hook design notes
-    "component-harness-tau2-design.md",     # this skill's own design notes (if any)
-]
-_MEMORY_DIR = Path.home() / ".claude" / "projects" / "-Users-erv1n-robagent" / "memory"
-
-
-def _isolation_targets(root: Path) -> list[Path]:
-    targets: list[Path] = []
-    for top, pat in _ISOLATE_GLOBS:
-        for p in sorted((root / top).glob(pat)):
-            if p.name == _ISOLATE_KEEP_LOGS_DIR:
-                continue
-            targets.append(p)
-    for name in _ISOLATE_MEMORY_FILES:
-        p = _MEMORY_DIR / name
-        if p.exists():
-            targets.append(p)
-    return targets
-
-
-def _hide_memory_index_lines(memory_md: Path, hidden_basenames: set[str]) -> str | None:
-    if not memory_md.exists():
-        return None
-    original = memory_md.read_text()
-    kept_lines = []
-    for line in original.splitlines():
-        if any(f"({name})" in line for name in hidden_basenames):
-            continue
-        kept_lines.append(line)
-    memory_md.write_text("\n".join(kept_lines) + "\n")
-    return original
-
-
-@contextlib.contextmanager
-def _isolate_proposer(root: Path):
-    """Hide prior-iter artefacts so the proposer cannot read them.
-
-    Each target is renamed under a timestamped stash directory; MEMORY.md
-    is rewritten to drop links to hidden memory files. On exit (success or
-    exception) every move is reversed and the stash is removed.
-    """
-    targets = _isolation_targets(root)
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    stash = root / f".component_proposer_hidden_{ts}"
-    stash.mkdir(parents=True, exist_ok=False)
-    manifest_path = stash / "moved.json"
-
-    moved: list[tuple[Path, Path]] = []
-    memory_md = _MEMORY_DIR / "MEMORY.md"
-    memory_original: str | None = None
-
-    try:
-        manifest: list[dict] = []
-        for src in targets:
-            stem = f"{abs(hash(str(src))) & 0xffff_ffff:08x}__{src.name}"
-            dst = stash / stem
-            src.rename(dst)
-            moved.append((src, dst))
-            manifest.append({"src": str(src), "dst": str(dst)})
-        manifest_path.write_text(json.dumps(manifest, indent=2))
-
-        memory_original = _hide_memory_index_lines(
-            memory_md, hidden_basenames=set(_ISOLATE_MEMORY_FILES)
-        )
-
-        print(f"  isolation: hid {len(moved)} paths into {stash.name}/", flush=True)
-        yield
-    finally:
-        for src, dst in reversed(moved):
-            try:
-                if dst.exists():
-                    dst.rename(src)
-            except Exception as e:
-                print(f"  WARN: failed to restore {src}: {e}", flush=True)
-        if memory_original is not None:
-            try:
-                memory_md.write_text(memory_original)
-            except Exception as e:
-                print(f"  WARN: failed to restore MEMORY.md: {e}", flush=True)
-        try:
-            shutil.rmtree(stash)
-        except Exception as e:
-            print(f"  WARN: stash {stash} not removed: {e}", flush=True)
+# Proposer isolation is now enforced by running claude inside a docker
+# container with a per-skill whitelist of bind mounts (see
+# meta_harness/_proposer_docker.py).  The previous physical-mv approach was
+# removed because it also hid sibling-skill state from the sibling's own
+# main loop, racing with parallel runs.
 
 
 # ----------------------------------------------------------------------------
@@ -275,11 +186,14 @@ CRITICAL:
   - Do NOT build a new agent directory under agent_tau2/. This skill
     only writes component files (under agent_tau2/components/) and
     workflow_patch metadata in pending_eval.json.
-  - **Isolation invariant**: legacy paths (agent_tau2/mh_tau2_iter*,
-    meta_harness/logs_tau2_*, except logs_tau2_components) are physically
-    moved out of the tree before you start. If you discover a path that
-    names "mh_tau2_iter" or a robust/baseline frontier log, the isolation
-    has a bug — do not read it.
+  - **Isolation invariant**: this proposer runs inside a docker container
+    whose filesystem only contains the paths the tau2 skill is allowed to
+    see. Legacy candidates (agent_tau2/mh_tau2_iter*), legacy frontier
+    logs (meta_harness/logs_tau2_baseline/, logs_tau2_robust/), and sibling
+    skill state (meta_harness/logs_components_{{gaia,toolathlon,sopbench_*}}/,
+    agent_toolathlon/, agent/) simply do not exist in the container. If
+    you encounter such a path, _proposer_docker.py has a manifest bug
+    — do not read it.
   - No task-specific hardcoding. No customer names / order ids in code.
 """
 
@@ -302,6 +216,9 @@ def run_proposer(iteration: int, log_dir: Path, skill_name: str,
             disable_skills=True,
             disable_mcp=True,
             progress=True,
+            docker_skill=skill_name,
+            docker_container_name=f"robagent-proposer-tau2-iter{iteration}-"
+                                  f"{int(time.time())}",
         )
         print(f"  attempt {attempt}/{max_attempts}: exit={result.exit_code} "
               f"cost=${result.cost_usd:.4f} dur={result.duration_seconds:.0f}s",
@@ -504,9 +421,8 @@ def main() -> None:
         iteration = _current_iteration()
         prev_workflow = _load_frontier_workflow()
 
-        with _isolate_proposer(ROOT):
-            pending = run_proposer(iteration, proposer_log_dir,
-                                   args.skill, args.candidate_slug_prefix)
+        pending = run_proposer(iteration, proposer_log_dir,
+                               args.skill, args.candidate_slug_prefix)
         if args.proposer_only:
             print("--proposer-only; stopping"); return
 
