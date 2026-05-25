@@ -36,6 +36,13 @@ from meta_harness.component_runtime_core.shared_types import (
     StateScope,
     Trust,
 )
+# Phase C: ComponentContext inherits EventContext so component handlers can
+# call `ctx.chat(...)` / `ctx.emit(custom_event, ...)` / `ctx.emit_upstream(...)`
+# uniformly with the other 4 siblings. EventContext owns the cross-event
+# scratchpads (`shared`, `state`, `persistent_state`, `upstream`), the
+# `blocked` / `blocked_reason` signal pair, and the `_impl_*` capability
+# hooks the per-bench dispatcher wires at construction time.
+from meta_harness.component_runtime_core.event_context import EventContext
 
 
 # --- enums -------------------------------------------------------------------
@@ -113,29 +120,34 @@ class Decision:
 # --- context -----------------------------------------------------------------
 
 
-@dataclass
-class ComponentContext:
+@dataclass(kw_only=True)
+class ComponentContext(EventContext):
     """Argument to every matcher / handler.
 
-    Reused across components firing at the same mount. Components may read
-    `shared`/`state`; runtime-owned fields (`prompt` / `raw_response` /
-    `answer`) are mutated only by the dispatcher applying Decisions.
+    Reused across components firing at the same mount / event. Components
+    may read `shared` / `state` / `upstream`; runtime-owned fields
+    (`prompt` / `raw_response` / `answer`) are mutated only by the
+    dispatcher applying Decisions.
+
+    Inherits from EventContext (Phase C): `event`, `task_id`, `shared`,
+    `state`, `persistent_state`, `upstream`, `blocked`, `blocked_reason`,
+    plus the `ctx.chat(...)` / `ctx.fetch(...)` / `ctx.read_file(...)` /
+    `ctx.emit(...)` / `ctx.emit_upstream(...)` capability methods.
+
+    `@dataclass(kw_only=True)` is required because EventContext fields all
+    have defaults; without kw_only Python would refuse to add non-default
+    subclass fields (mount / benchmark / extras) after default fields.
+    All existing call sites already use kwargs (see base.py::run_task).
     """
-    mount: Mount
-    benchmark: str
-    task_id: str
-    extras: dict
     # Mount-specific payloads (only the relevant ones are populated):
-    system_prompt: str = ""                      # current base system prompt
-    prompt: Optional[str] = None                 # task_prompt at PRE_PROMPT_BUILD
-    raw_response: Optional[str] = None           # LLM raw content at POST_LLM_RESPONSE / PRE_ANSWER_EMIT
-    answer: Optional[str] = None                 # extracted answer at PRE_ANSWER_EMIT
-    blocked: bool = False
-    blocked_reason: str = ""
-    # General:
-    shared: dict = field(default_factory=dict)
-    state: dict = field(default_factory=dict)   # per-component name → state dict
-    log: Any = None                              # EventLog (read-only access for handlers)
+    mount: Mount                                  # most recent Mount enum (legacy)
+    benchmark: str                                # bench slug
+    extras: dict                                  # per-task extras
+    system_prompt: str = ""                       # current base system prompt
+    prompt: Optional[str] = None                  # task_prompt at PRE_PROMPT_BUILD
+    raw_response: Optional[str] = None            # LLM raw content at POST_LLM_RESPONSE / PRE_ANSWER_EMIT
+    answer: Optional[str] = None                  # extracted answer at PRE_ANSWER_EMIT
+    log: Any = None                               # EventLog (read-only access for handlers)
 
 
 Ctx = ComponentContext

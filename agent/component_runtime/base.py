@@ -28,6 +28,7 @@ from typing import Any, Optional
 
 from agent.events import EventLog, new_run_id, traces_dir
 from agent.llm import chat, DEFAULT_MODEL
+from meta_harness.component_runtime_core.dispatcher import Dispatcher
 
 from .policy import ComponentPolicyError, validate_decision
 from .registry import COMPONENTS_DIR_DEFAULT, load_components_from_dir
@@ -62,13 +63,18 @@ def _trace_dir() -> Path:
     return d
 
 
-def _trace(component_name: str, mount: Mount, decision_kind: DecisionKind,
-           extra: dict) -> None:
+def _trace_sink(component_name: str, event_name: str, decision_kind_value: str,
+                extra: dict) -> None:
+    """Append one row per fire to `fired.jsonl`. Phase B/C: the trace shape
+    carries both `event` (Tier-1 / Tier-2/3 name) and `mount` (legacy alias
+    of the same string) so downstream log readers that still parse the old
+    key keep working until they migrate."""
     rec = {
         "ts": time.time(),
         "component": component_name,
-        "mount": mount.value,
-        "decision": decision_kind.value,
+        "event": event_name,
+        "mount": event_name,
+        "decision": decision_kind_value,
         **extra,
     }
     with (_trace_dir() / "fired.jsonl").open("a") as f:
@@ -79,18 +85,18 @@ def _trace(component_name: str, mount: Mount, decision_kind: DecisionKind,
 
 
 _WORKFLOW: Optional[Workflow] = None
-_COMPONENTS_BY_MOUNT: Optional[dict[Mount, list[Component]]] = None
+_DISPATCHER: Optional[Dispatcher] = None
 
 
 def _resolve_workflow_path() -> Path:
     return Path(os.environ.get("COMPONENT_WORKFLOW", str(DEFAULT_WORKFLOW)))
 
 
-def _load_active() -> tuple[Workflow, dict[Mount, list[Component]]]:
-    """Load workflow + active components once per process. Cached."""
-    global _WORKFLOW, _COMPONENTS_BY_MOUNT
-    if _WORKFLOW is not None and _COMPONENTS_BY_MOUNT is not None:
-        return _WORKFLOW, _COMPONENTS_BY_MOUNT
+def _load_active() -> tuple[Workflow, Dispatcher]:
+    """Load workflow + build the per-process Dispatcher. Cached."""
+    global _WORKFLOW, _DISPATCHER
+    if _WORKFLOW is not None and _DISPATCHER is not None:
+        return _WORKFLOW, _DISPATCHER
 
     wf_path = _resolve_workflow_path()
     if wf_path.exists():
@@ -108,73 +114,128 @@ def _load_active() -> tuple[Workflow, dict[Mount, list[Component]]]:
 
     comp_dir = os.environ.get("COMPONENT_DIR", str(COMPONENTS_DIR_DEFAULT))
     active = list(wf.active_nodes())
+    flattened: list[Component] = []
     if active:
         grouped = load_components_from_dir(comp_dir, only=active)
-    else:
-        grouped = {m: [] for m in Mount}
+        for mount, comps in grouped.items():
+            flattened.extend(comps)
 
     _WORKFLOW = wf
-    _COMPONENTS_BY_MOUNT = grouped
-    return wf, grouped
+    _DISPATCHER = Dispatcher(
+        flattened,
+        validate_decision=_validate_for_dispatcher,
+        apply_decision=_apply_decision,
+        trace_sink=_trace_sink,
+    )
+    return wf, _DISPATCHER
 
 
-# --- dispatch ----------------------------------------------------------------
+# --- dispatch helpers (Phase B/C) --------------------------------------------
 
 
-def _dispatch(mount: Mount, ctx: ComponentContext,
-              components_by_mount: dict[Mount, list[Component]]) -> None:
-    """Fire all components at `mount` whose matcher matches, in priority order.
+def _validate_for_dispatcher(comp: Component, event_name: str,
+                             kind: DecisionKind) -> None:
+    """Adapter: the core Dispatcher passes `event_name: str`, the sibling
+    policy validator accepts Mount enum OR string (see policy._normalise_key).
+    Forward unchanged — policy handles both."""
+    validate_decision(comp.cls, event_name, kind)
 
-    Decisions mutate `ctx` in place:
-      INJECT_CONTEXT @ SESSION_START / PRE_PROMPT_BUILD → append to ctx.system_prompt
-      INJECT_CONTEXT @ POST_LLM_RESPONSE → append to ctx.shared['post_llm_inject']
-                                            (the recovery hook reads this; v1: append
-                                            to raw_response as a system note marker)
-      REWRITE @ PRE_PROMPT_BUILD  → ctx.prompt = payload
-      REWRITE @ POST_LLM_RESPONSE → ctx.raw_response = payload
-      REWRITE @ PRE_ANSWER_EMIT   → ctx.answer = payload (None marks blocked)
-      BLOCK  @ any                 → ctx.blocked = True, ctx.blocked_reason = decision.reason
+
+def _apply_decision(ctx: ComponentContext, decision: "Decision",  # noqa: F821
+                    comp: Component) -> bool:
+    """Mutate ctx per Decision; return True to stop firing remaining
+    subscribers at this event.
+
+    Event → side-effect mapping (mount-style + Tier-1 names normalised):
+
+      INJECT_CONTEXT @ pre-LLM-ish events  → append to ctx.system_prompt
+                       (session_start, pre_prompt_build, pre_context_build,
+                        task_received, pre_agent_construct, pre_llm_request)
+      INJECT_CONTEXT @ post-LLM-ish events → push onto ctx.shared['post_llm_inject']
+                       (post_llm_response[_raw], on_length_truncation, on_empty_response)
+      REWRITE @ pre_prompt_build / pre_context_build   → ctx.prompt
+      REWRITE @ post_llm_response[_raw] /
+                 on_length_truncation / on_empty_response → ctx.raw_response
+      REWRITE @ pre_answer_emit                        → ctx.answer (None marks blocked)
+      BLOCK   @ any                                    → ctx.blocked + stop=True
     """
-    for comp in components_by_mount.get(mount, []):
-        if ctx.blocked:
-            return
-        if comp.matcher is not None and not comp.matcher(ctx):
-            continue
-        decision = comp.handler(ctx)
-        try:
-            validate_decision(comp.cls, comp.mount, decision.kind)
-        except ComponentPolicyError as e:
-            # log and treat as ALLOW (don't crash the eval)
-            if ctx.log is not None:
-                ctx.log.emit("component.policy_error",
-                             component=comp.name, error=repr(e))
-            _trace(comp.name, mount, decision.kind, {"policy_error": str(e)})
-            continue
+    event = ctx.event or ""
+    kind = decision.kind
+    if kind is DecisionKind.ALLOW:
+        return False
+    if kind is DecisionKind.INJECT_CONTEXT:
+        text = str(decision.payload or "")
+        if event in (
+            "session_start",
+            "pre_prompt_build",
+            "pre_context_build",
+            "task_received",
+            "pre_agent_construct",
+            "pre_llm_request",
+        ):
+            ctx.system_prompt = (ctx.system_prompt + "\n\n" + text).strip()
+        else:
+            ctx.shared.setdefault("post_llm_inject", []).append(text)
+        return False
+    if kind is DecisionKind.REWRITE:
+        payload = decision.payload
+        if event in ("pre_prompt_build", "pre_context_build"):
+            ctx.prompt = str(payload or "")
+        elif event in (
+            "post_llm_response",
+            "post_llm_response_raw",
+            "on_length_truncation",
+            "on_empty_response",
+        ):
+            ctx.raw_response = str(payload or "")
+        elif event == "pre_answer_emit":
+            ctx.answer = None if payload is None else str(payload)
+        return False
+    if kind is DecisionKind.BLOCK:
+        ctx.blocked = True
+        ctx.blocked_reason = decision.reason or f"{comp.name}: block"
+        return True
+    return False
 
-        kind = decision.kind
-        if kind is DecisionKind.ALLOW:
-            _trace(comp.name, mount, kind, {})
-            continue
-        if kind is DecisionKind.INJECT_CONTEXT:
-            text = str(decision.payload or "")
-            if mount in (Mount.SESSION_START, Mount.PRE_PROMPT_BUILD):
-                ctx.system_prompt = (ctx.system_prompt + "\n\n" + text).strip()
-            else:
-                ctx.shared.setdefault("post_llm_inject", []).append(text)
-            _trace(comp.name, mount, kind, {"chars": len(text)})
-        elif kind is DecisionKind.REWRITE:
-            payload = decision.payload
-            if mount is Mount.PRE_PROMPT_BUILD:
-                ctx.prompt = str(payload or "")
-            elif mount is Mount.POST_LLM_RESPONSE:
-                ctx.raw_response = str(payload or "")
-            elif mount is Mount.PRE_ANSWER_EMIT:
-                ctx.answer = None if payload is None else str(payload)
-            _trace(comp.name, mount, kind, {})
-        elif kind is DecisionKind.BLOCK:
-            ctx.blocked = True
-            ctx.blocked_reason = decision.reason or f"{comp.name}: block"
-            _trace(comp.name, mount, kind, {"reason": ctx.blocked_reason})
+
+def _make_chat_impl():
+    """Build the per-task ctx.chat implementation. The locked SUT model is
+    enforced inside `agent.llm.chat` itself (raises if a `model=` override
+    is passed). The wrapper translates EventContext.chat's `system_override`
+    kwarg into a messages-list rewrite the upstream API accepts."""
+    def _impl(messages, *, max_tokens, temperature, system_override, tools):
+        if system_override:
+            messages = (
+                [{"role": "system", "content": system_override}]
+                + [m for m in messages if m.get("role") != "system"]
+            )
+        return chat(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            tools=tools,
+        )
+    return _impl
+
+
+def _wire_capabilities(ctx: ComponentContext, dispatcher: Dispatcher) -> None:
+    """Attach per-sibling capability implementations to the ctx. None for
+    fetch / read_file (gaia v1 does not expose those — components that
+    declare HTTP_GET / READ_FILE still get the structural contract via
+    the manifest, but the runtime stub will raise if called)."""
+    ctx._impl_chat = _make_chat_impl()
+    ctx._impl_emit = lambda name, fields: dispatcher.emit(name, ctx)
+    # ctx._impl_fetch / _impl_read_file intentionally left None for gaia v1.
+
+
+def _emit(dispatcher: Dispatcher, event_name: str,
+          ctx: ComponentContext, *, sync_mount: Optional[Mount] = None) -> None:
+    """Fire one event. Optionally keep ctx.mount synced to a Mount enum so
+    legacy handlers that read ctx.mount still see the right value when the
+    event has a Mount alias."""
+    if sync_mount is not None:
+        ctx.mount = sync_mount
+    dispatcher.emit(event_name, ctx)
 
 
 # --- entry point -------------------------------------------------------------
@@ -200,7 +261,7 @@ def run_task(
         extras=extras,
     )
 
-    wf, by_mount = _load_active()
+    wf, dispatcher = _load_active()
 
     ctx = ComponentContext(
         mount=Mount.SESSION_START,
@@ -211,34 +272,55 @@ def run_task(
         prompt=task_prompt,
         log=log,
     )
+    _wire_capabilities(ctx, dispatcher)
 
-    # SESSION_START
-    _dispatch(Mount.SESSION_START, ctx, by_mount)
-    if ctx.blocked:
+    def _blocked_return(stage: str) -> dict[str, Any]:
         log.emit("agent.blocked", parent=root,
-                 reason=ctx.blocked_reason, stage="session_start")
+                 reason=ctx.blocked_reason, stage=stage)
         log.emit("answer.emitted", parent=root, answer=None)
         log.close()
         return {"run_id": run_id, "answer": None, "error": None,
                 "trace_path": str(log.path), "log": log, "root_event_id": root,
                 "blocked_reason": ctx.blocked_reason}
 
-    # PRE_PROMPT_BUILD
-    ctx.mount = Mount.PRE_PROMPT_BUILD
-    _dispatch(Mount.PRE_PROMPT_BUILD, ctx, by_mount)
+    # --- setup phase ---------------------------------------------------------
+    # Tier-1 task_received: lifecycle anchor right after ctx construction.
+    _emit(dispatcher, "task_received", ctx, sync_mount=Mount.SESSION_START)
     if ctx.blocked:
-        log.emit("agent.blocked", parent=root,
-                 reason=ctx.blocked_reason, stage="pre_prompt_build")
-        log.emit("answer.emitted", parent=root, answer=None)
-        log.close()
-        return {"run_id": run_id, "answer": None, "error": None,
-                "trace_path": str(log.path), "log": log, "root_event_id": root,
-                "blocked_reason": ctx.blocked_reason}
+        return _blocked_return("task_received")
+
+    # Legacy SESSION_START mount (static framework-invariant injection).
+    _emit(dispatcher, "session_start", ctx, sync_mount=Mount.SESSION_START)
+    if ctx.blocked:
+        return _blocked_return("session_start")
+
+    # Legacy PRE_PROMPT_BUILD mount, paired with Tier-1 alias pre_context_build
+    # (per the cross-sibling event vocabulary). Legacy subscribers fire on the
+    # mount.value, new event-style subscribers fire on the Tier-1 name.
+    _emit(dispatcher, "pre_prompt_build", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    if ctx.blocked:
+        return _blocked_return("pre_prompt_build")
+    _emit(dispatcher, "pre_context_build", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    if ctx.blocked:
+        return _blocked_return("pre_context_build")
+
+    # Tier-1 pre_agent_construct: last chance to influence the inference
+    # request before messages list is sealed. Components can append guidance
+    # via INJECT_CONTEXT.
+    _emit(dispatcher, "pre_agent_construct", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    if ctx.blocked:
+        return _blocked_return("pre_agent_construct")
 
     messages = [
         {"role": "system", "content": ctx.system_prompt},
         {"role": "user", "content": ctx.prompt or ""},
     ]
+
+    # Tier-1 pre_llm_request: anything wired to react just before the SUT call.
+    _emit(dispatcher, "pre_llm_request", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    if ctx.blocked:
+        return _blocked_return("pre_llm_request")
+
     call = log.emit("llm.requested", parent=root, messages=messages,
                     model=DEFAULT_MODEL)
 
@@ -261,35 +343,45 @@ def run_task(
     ctx.raw_response = result.get("content") or ""
     ctx.shared["finish_reason"] = result.get("finish_reason")
 
-    # POST_LLM_RESPONSE
-    ctx.mount = Mount.POST_LLM_RESPONSE
-    _dispatch(Mount.POST_LLM_RESPONSE, ctx, by_mount)
+    # Legacy POST_LLM_RESPONSE + Tier-1 post_llm_response_raw twin emit.
+    _emit(dispatcher, "post_llm_response", ctx, sync_mount=Mount.POST_LLM_RESPONSE)
     if ctx.blocked:
-        log.emit("agent.blocked", parent=root,
-                 reason=ctx.blocked_reason, stage="post_llm_response")
-        log.emit("answer.emitted", parent=root, answer=None)
-        log.close()
-        return {"run_id": run_id, "answer": None, "error": None,
-                "trace_path": str(log.path), "log": log, "root_event_id": root,
-                "blocked_reason": ctx.blocked_reason}
+        return _blocked_return("post_llm_response")
+    _emit(dispatcher, "post_llm_response_raw", ctx, sync_mount=Mount.POST_LLM_RESPONSE)
+    if ctx.blocked:
+        return _blocked_return("post_llm_response_raw")
+
+    # Tier-1 failure-mode events — synthesised from the response shape so
+    # components can attach narrowly (e.g. length_recovery_guard hooks
+    # `on_length_truncation` instead of post_llm_response with a finish_reason
+    # matcher). Both gates are independent: an empty response with
+    # finish_reason=length fires both.
+    if (result.get("finish_reason") or "") == "length":
+        _emit(dispatcher, "on_length_truncation", ctx,
+              sync_mount=Mount.POST_LLM_RESPONSE)
+        if ctx.blocked:
+            return _blocked_return("on_length_truncation")
+    if not (ctx.raw_response or "").strip():
+        _emit(dispatcher, "on_empty_response", ctx,
+              sync_mount=Mount.POST_LLM_RESPONSE)
+        if ctx.blocked:
+            return _blocked_return("on_empty_response")
 
     # Default extraction: strip whitespace. Components at PRE_ANSWER_EMIT may
     # override (e.g., regex on "FINAL ANSWER:" line).
     ctx.answer = (ctx.raw_response or "").strip()
 
-    # PRE_ANSWER_EMIT
-    ctx.mount = Mount.PRE_ANSWER_EMIT
-    _dispatch(Mount.PRE_ANSWER_EMIT, ctx, by_mount)
+    # Legacy PRE_ANSWER_EMIT.
+    _emit(dispatcher, "pre_answer_emit", ctx, sync_mount=Mount.PRE_ANSWER_EMIT)
     if ctx.blocked:
-        log.emit("agent.blocked", parent=root,
-                 reason=ctx.blocked_reason, stage="pre_answer_emit")
-        log.emit("answer.emitted", parent=root, answer=None)
-        log.close()
-        return {"run_id": run_id, "answer": None, "error": None,
-                "trace_path": str(log.path), "log": log, "root_event_id": root,
-                "blocked_reason": ctx.blocked_reason}
+        return _blocked_return("pre_answer_emit")
 
     log.emit("answer.emitted", parent=root, answer=ctx.answer)
+
+    # Tier-1 session_end: terminal bookkeeping; decisions are ALLOW-only per
+    # policy (any other decision is too late to matter on a single-shot
+    # benchmark). Fired after answer emission so handlers see the final ctx.
+    _emit(dispatcher, "session_end", ctx, sync_mount=Mount.SESSION_END)
 
     return {
         "run_id": run_id,

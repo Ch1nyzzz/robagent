@@ -108,6 +108,16 @@ class Dispatcher:
                 f"{event_name!r}; check for emit cycles among components."
             )
         self._depth += 1
+        # Tag the context with the firing event name so handlers / apply hooks
+        # can route on `ctx.event` without the caller threading it. Restore on
+        # exit so an in-handler `ctx.emit(custom)` does not leak back to the
+        # outer caller's notion of "current event".
+        prev_event = getattr(ctx, "event", None) if ctx is not None else None
+        if ctx is not None:
+            try:
+                setattr(ctx, "event", event_name)
+            except (AttributeError, TypeError):
+                pass
         try:
             for comp in self._by_event.get(event_name, ()):
                 matcher = getattr(comp, "matcher", None)
@@ -131,4 +141,9 @@ class Dispatcher:
                 if stop:
                     break
         finally:
+            if ctx is not None:
+                try:
+                    setattr(ctx, "event", prev_event if prev_event is not None else "")
+                except (AttributeError, TypeError):
+                    pass
             self._depth -= 1
