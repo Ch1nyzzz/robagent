@@ -81,7 +81,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -164,7 +163,7 @@ def _find_last_enumerated_mention(content: str, values: List[str]) -> str:
 
 
 def _matches(ctx: ComponentContext) -> bool:
-    if ctx.mount is not Mount.PRE_FINAL_EMIT:
+    if ctx.event != "pre_final_emit":
         return False
     tag = _extract_output_tag(ctx.sop_text or "")
     if not tag:
@@ -229,7 +228,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_final_emit_recovery",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.PRE_FINAL_EMIT,
+    listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

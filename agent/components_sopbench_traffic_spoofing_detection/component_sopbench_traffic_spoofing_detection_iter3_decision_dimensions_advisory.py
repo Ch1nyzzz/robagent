@@ -69,7 +69,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -105,7 +104,7 @@ def _extract_section_5_6(sop: str) -> str:
 
 
 def _matches(ctx: ComponentContext) -> bool:
-    if ctx.mount is not Mount.PRE_PROMPT_BUILD:
+    if ctx.event != "pre_prompt_build":
         return False
     section = _extract_section_5_6(ctx.sop_text or "")
     if not section:
@@ -144,7 +143,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_decision_dimensions_advisory",
     cls=ComponentClass.CHANNEL,
-    mount=Mount.PRE_PROMPT_BUILD,
+    listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

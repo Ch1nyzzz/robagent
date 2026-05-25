@@ -35,7 +35,7 @@ from .hooks import build_hooks
 from .pretty_task_agent import PrettyDecoupledTaskAgent
 from .registry import COMPONENTS_DIR_DEFAULT, load_components, load_components_from_dir
 from .task_agent import TaskAgent
-from .types import Component, Mount
+from .types import Component
 from .workflow import Workflow
 
 

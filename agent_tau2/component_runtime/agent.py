@@ -10,8 +10,8 @@ alias (set by `Component.__post_init__`).
 Events emitted per lifecycle phase:
 
   * Setup (one-shot at __init__):
-        task_received  →  pre_context_build (= Mount.PRE_CONTEXT_BUILD)
-            → session_start (= Mount.SESSION_START) → pre_agent_construct
+        task_received  →  pre_context_build (= "pre_context_build")
+            → session_start (= "session_start") → pre_agent_construct
         INJECT_CONTEXT decisions accumulate into the system_prompt
         extension; subsequent components see prior contributions via
         `ctx.proposed_system_prompt`.
@@ -21,13 +21,13 @@ Events emitted per lifecycle phase:
             [if incoming message was a ToolMessage]
             → pre_llm_request
             → [LLM call]
-            → post_llm_response (= Mount.POST_LLM_RESPONSE) — REWRITE_TOOL_ARGS
+            → post_llm_response (= "post_llm_response") — REWRITE_TOOL_ARGS
               rewrites first tool_call; BLOCK clears tool_calls; INJECT_CONTEXT
               queues SystemMessage for next turn
             → post_llm_response_raw (Tier-1 alias) + (gated) on_empty_response /
               on_no_tool_call_emitted
             → pre_tool_arg_validation (per ToolCall) → pre_tool_use
-              (= Mount.PRE_TOOL_USE; per ToolCall) — REWRITE_TOOL_ARGS rewrites
+              (= "pre_tool_use"; per ToolCall) — REWRITE_TOOL_ARGS rewrites
               args; BLOCK drops THIS tool call; DEFER falls back to ALLOW
 
 USER_PROMPT_SUBMIT / STOP / SESSION_END are reserved (declared in Mount and
@@ -64,7 +64,6 @@ from .types import (
     Component,
     ComponentContext,
     DecisionKind,
-    Mount,
     StateScope,
 )
 from .workflow import Workflow
@@ -251,14 +250,11 @@ class ComponentLLMAgent(LLMAgent):
 
     # ---- event helpers -----------------------------------------------------
 
-    def _make_ctx(self, event_name: str, mount: Mount,
-                  **fields) -> ComponentContext:
-        """Build a ComponentContext with capability hooks wired.
-        `mount` is the closest Mount enum for legacy matchers that read
-        `ctx.mount`; the dispatcher itself routes via `ctx.event` / the
-        string-keyed `Component.listens` field."""
+    def _make_ctx(self, event_name: str, **fields) -> ComponentContext:
+        """Build a ComponentContext with capability hooks wired. The
+        dispatcher routes via `ctx.event` / the string-keyed
+        `Component.listens` field."""
         ctx = ComponentContext(
-            mount=mount,
             domain_policy=self.domain_policy,
             tool_names=self._tool_names,
             state=self._session_state,
@@ -278,10 +274,10 @@ class ComponentLLMAgent(LLMAgent):
 
         Events fired (priority-ordered within each):
           task_received       — Tier-1 lifecycle anchor (no mount alias)
-          pre_context_build   — also Mount.PRE_CONTEXT_BUILD.value, so
-                                legacy `mount=Mount.PRE_CONTEXT_BUILD`
+          pre_context_build   — also "pre_context_build", so
+                                legacy `mount="pre_context_build"`
                                 components fire here via `listens` alias
-          session_start       — Mount.SESSION_START.value
+          session_start       — "session_start"
           pre_agent_construct — Tier-1 only
         """
         proposed = SYSTEM_PROMPT.format(
@@ -290,10 +286,10 @@ class ComponentLLMAgent(LLMAgent):
         )
         parts: list[str] = []
         for event_name, mount in (
-            ("task_received", Mount.PRE_CONTEXT_BUILD),
-            ("pre_context_build", Mount.PRE_CONTEXT_BUILD),
-            ("session_start", Mount.SESSION_START),
-            ("pre_agent_construct", Mount.SESSION_START),
+            ("task_received", "pre_context_build"),
+            ("pre_context_build", "pre_context_build"),
+            ("session_start", "session_start"),
+            ("pre_agent_construct", "session_start"),
         ):
             ctx = self._make_ctx(
                 event_name, mount,
@@ -331,7 +327,7 @@ class ComponentLLMAgent(LLMAgent):
 
         # pre_llm_request: anything wired to react just before the SUT call.
         pre_ctx = self._make_ctx(
-            "pre_llm_request", Mount.POST_LLM_RESPONSE,
+            "pre_llm_request", "post_llm_response",
             incoming_message=message,
             history=list(state.messages),
         )
@@ -351,14 +347,14 @@ class ComponentLLMAgent(LLMAgent):
         tcs = list(getattr(assistant_message, "tool_calls", None) or [])
         if not content.strip() and not tcs:
             failure_ctx = self._make_ctx(
-                "on_empty_response", Mount.POST_LLM_RESPONSE,
+                "on_empty_response", "post_llm_response",
                 assistant_message=assistant_message,
                 history=list(state.messages),
             )
             self._disp.emit("on_empty_response", failure_ctx)
         if not tcs:
             no_tc_ctx = self._make_ctx(
-                "on_no_tool_call_emitted", Mount.POST_LLM_RESPONSE,
+                "on_no_tool_call_emitted", "post_llm_response",
                 assistant_message=assistant_message,
                 history=list(state.messages),
             )
@@ -381,7 +377,7 @@ class ComponentLLMAgent(LLMAgent):
     def _fire_pre_tool_use(self, msg: AssistantMessage,
                             state) -> AssistantMessage:
         """For each ToolCall, fire pre_tool_arg_validation then
-        Mount.PRE_TOOL_USE through the unified dispatcher. apply_decision
+        "pre_tool_use" through the unified dispatcher. apply_decision
         handles REWRITE_TOOL_ARGS (rewrite ctx.tool_call) and BLOCK
         (mark drop). DEFER falls back to ALLOW."""
         kept: list[ToolCall] = []
@@ -395,7 +391,7 @@ class ComponentLLMAgent(LLMAgent):
             # Narrow schema-check phase first; lets a deterministic
             # validator rewrite before the main per-mount components fire.
             arg_ctx = self._make_ctx(
-                "pre_tool_arg_validation", Mount.PRE_TOOL_USE,
+                "pre_tool_arg_validation", "pre_tool_use",
                 tool_call=initial,
                 history=list(state.messages),
             )
@@ -407,7 +403,7 @@ class ComponentLLMAgent(LLMAgent):
 
             # Main pre_tool_use phase (mount.value event = "pre_tool_use").
             main_ctx = self._make_ctx(
-                "pre_tool_use", Mount.PRE_TOOL_USE,
+                "pre_tool_use", "pre_tool_use",
                 tool_call=current_call,
                 history=list(state.messages),
             )
@@ -440,7 +436,7 @@ class ComponentLLMAgent(LLMAgent):
         current_tcs = list(msg.tool_calls or [])
         for event_name in ("post_llm_response", "post_llm_response_raw"):
             ctx = self._make_ctx(
-                event_name, Mount.POST_LLM_RESPONSE,
+                event_name, "post_llm_response",
                 assistant_message=msg,
                 tool_call=current_tcs[0] if current_tcs else None,
                 history=list(state.messages),
@@ -480,7 +476,7 @@ class ComponentLLMAgent(LLMAgent):
             # Per-ToolMessage: emit raw event, then optional error event,
             # then the mount.value event for legacy POST_TOOL_USE components.
             t1 = self._make_ctx(
-                "post_tool_result_raw", Mount.POST_TOOL_USE,
+                "post_tool_result_raw", "post_tool_use",
                 incoming_message=tm,
                 history=list(state.messages),
             )
@@ -490,7 +486,7 @@ class ComponentLLMAgent(LLMAgent):
                 self._disp.emit("on_tool_error", t1)
 
             main = self._make_ctx(
-                "post_tool_use", Mount.POST_TOOL_USE,
+                "post_tool_use", "post_tool_use",
                 incoming_message=tm,
                 history=list(state.messages),
             )

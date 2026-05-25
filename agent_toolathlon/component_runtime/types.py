@@ -45,26 +45,6 @@ from meta_harness.component_runtime_core.event_context import EventContext
 # --- enums -------------------------------------------------------------------
 
 
-class Mount(str, Enum):
-    """Lifecycle / workflow points a Component can attach to.
-
-    Dispatch order for a single user→assistant round-trip (toolathlon v1):
-      PRE_CONTEXT_BUILD → SESSION_START → USER_PROMPT_SUBMIT → (LLM+tools) →
-      POST_TOOL_USE → SESSION_END.
-
-    v1 actually dispatches PRE_CONTEXT_BUILD, SESSION_START,
-    USER_PROMPT_SUBMIT, PRE_TOOL_USE (ALLOW/BLOCK only), POST_TOOL_USE.
-    POST_LLM_RESPONSE / STOP / SESSION_END are declared and load-time
-    validated but not yet dispatched.
-    """
-    PRE_CONTEXT_BUILD   = "pre_context_build"
-    SESSION_START       = "session_start"
-    USER_PROMPT_SUBMIT  = "user_prompt_submit"
-    PRE_TOOL_USE        = "pre_tool_use"
-    POST_LLM_RESPONSE   = "post_llm_response"     # reserved, not dispatched in v1
-    POST_TOOL_USE       = "post_tool_use"
-    STOP                = "stop"                  # reserved
-    SESSION_END         = "session_end"           # reserved
 
 
 class DecisionKind(str, Enum):
@@ -144,7 +124,6 @@ class ComponentContext(EventContext):
         item; the runtime exposes a thin dict with `tool_name` and
         `output` for matcher convenience.
     """
-    mount: Mount
     tool_call: Optional[Any] = None              # ToolCall-like, for PRE_TOOL_USE
     incoming_message: Optional[Any] = None       # POST_TOOL_USE: dict(tool_name, output)
     assistant_message: Optional[Any] = None      # reserved (POST_LLM_RESPONSE)
@@ -181,7 +160,7 @@ Handler = Callable[[ComponentContext], Decision]
 # --- component ---------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Component:
     """A registered Component.
 
@@ -192,23 +171,15 @@ class Component:
     """
     name: str
     cls: ComponentClass
-    mount: Mount
     matcher: Optional[Matcher]
     handler: Handler
     trust: Trust
     state_scope: StateScope = StateScope.NONE
     capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100              # smaller fires first
-    # Phase B (event-runtime migration) additions:
-    #   `listens` is the dispatcher subscription key. Defaults via
-    #   __post_init__ to `mount.value` so existing components migrate
-    #   transparently. `emits` self-documents custom Tier-2/3 events.
-    listens: str = ""
+    listens: str
     emits: tuple[str, ...] = ()
 
-    def __post_init__(self):
-        if not self.listens:
-            object.__setattr__(self, "listens", self.mount.value)
 
 
 # --- helpers -----------------------------------------------------------------

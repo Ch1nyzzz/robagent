@@ -9,7 +9,7 @@ from typing import Optional
 
 from agent.component_runtime.types import (
     Capability, Component, ComponentClass, ComponentContext,
-    Decision, Mount, StateScope, Trust,
+    Decision, StateScope, Trust,
 )
 
 _MAX_CHARS = 12000
@@ -137,7 +137,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="gaia_file_channel",
     cls=ComponentClass.CHANNEL,
-    mount=Mount.PRE_PROMPT_BUILD,
+    listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

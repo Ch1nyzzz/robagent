@@ -30,7 +30,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -72,7 +71,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_warehouse_package_inspection_resolution_status_output_spec",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.SESSION_START,
+    listens="session_start",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

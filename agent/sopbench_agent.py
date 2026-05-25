@@ -28,7 +28,6 @@ from agent.llm import chat
 from agent.component_runtime_sopbench import (
     ComponentContext,
     Dispatcher,
-    Mount,
     build_dispatcher,
 )
 
@@ -173,7 +172,6 @@ class SopBenchAgent(BaseAgent):
             oai_tools = _bedrock_to_openai_tools(tool_specs)
             dispatcher = self._dispatcher()
             ctx = ComponentContext(
-                mount=Mount.SESSION_START,
                 benchmark=self._benchmark(),
                 task_id=str(task.get("__task_id__", "")) if isinstance(task, dict) else "",
                 sop_text=sop,
@@ -192,12 +190,12 @@ class SopBenchAgent(BaseAgent):
                 return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
             # SESSION_START: static system_prompt injection only.
-            dispatcher.emit(Mount.SESSION_START.value, ctx, sync_mount=Mount.SESSION_START)
+            dispatcher.emit("session_start", ctx)
             if ctx.blocked:
                 return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
             # PRE_PROMPT_BUILD: can rewrite user_prompt or inject into system_prompt.
-            dispatcher.emit(Mount.PRE_PROMPT_BUILD.value, ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+            dispatcher.emit("pre_prompt_build", ctx)
             if ctx.blocked:
                 return self._blocked_result(ctx, trace_lines, executed_tool_calls)
             # Tier-1 alias for cross-sibling consistency.
@@ -230,7 +228,7 @@ class SopBenchAgent(BaseAgent):
                     )
 
                 # PRE_LLM_TURN: components can rewrite messages list.
-                dispatcher.emit(Mount.PRE_LLM_TURN.value, ctx, sync_mount=Mount.PRE_LLM_TURN)
+                dispatcher.emit("pre_llm_turn", ctx)
                 if ctx.blocked:
                     return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
@@ -260,7 +258,7 @@ class SopBenchAgent(BaseAgent):
                 ctx.raw_response = content
                 ctx.finish_reason = finish_reason
                 ctx.tool_calls = tcs
-                dispatcher.emit(Mount.POST_LLM_RESPONSE.value, ctx, sync_mount=Mount.POST_LLM_RESPONSE)
+                dispatcher.emit("post_llm_response", ctx)
                 if ctx.blocked:
                     return self._blocked_result(ctx, trace_lines, executed_tool_calls)
                 # Tier-1 post_llm_response_raw + synthesised failure-mode events.
@@ -312,7 +310,7 @@ class SopBenchAgent(BaseAgent):
                         # without re-emitting PRE_TOOL_USE.
                         pass
 
-                    dispatcher.emit(Mount.PRE_TOOL_USE.value, ctx, sync_mount=Mount.PRE_TOOL_USE)
+                    dispatcher.emit("pre_tool_use", ctx)
                     if ctx.blocked:
                         return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
@@ -348,7 +346,7 @@ class SopBenchAgent(BaseAgent):
                             f"success={ctx.current_tool_success}"
                         )
 
-                    dispatcher.emit(Mount.POST_TOOL_USE.value, ctx, sync_mount=Mount.POST_TOOL_USE)
+                    dispatcher.emit("post_tool_use", ctx)
                     if ctx.blocked:
                         return self._blocked_result(ctx, trace_lines, executed_tool_calls)
                     # Tier-1 post_tool_result_raw + on_tool_error.
@@ -383,10 +381,10 @@ class SopBenchAgent(BaseAgent):
                     return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
             ctx.final_output = final_content
-            dispatcher.emit(Mount.PRE_FINAL_EMIT.value, ctx, sync_mount=Mount.PRE_FINAL_EMIT)
+            dispatcher.emit("pre_final_emit", ctx)
             if ctx.blocked:
                 return self._blocked_result(ctx, trace_lines, executed_tool_calls)
-            dispatcher.emit(Mount.SESSION_END.value, ctx, sync_mount=Mount.SESSION_END)
+            dispatcher.emit("session_end", ctx)
 
             return AgentResult(
                 output=ctx.final_output,

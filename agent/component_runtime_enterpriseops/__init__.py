@@ -22,7 +22,6 @@ from .types import (
     DecisionKind,
     Handler,
     Matcher,
-    Mount,
     StateScope,
     Trust,
 )
@@ -61,7 +60,6 @@ __all__ = [
     "FrontierSnapshot",
     "Handler",
     "Matcher",
-    "Mount",
     "Patch",
     "PatchOp",
     "StateScope",

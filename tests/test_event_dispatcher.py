@@ -1,16 +1,15 @@
-"""End-to-end test for the Phase-B event dispatcher + EventContext.
+"""End-to-end test for the core event dispatcher + EventContext.
 
 Covers:
   - basic emit → matcher → handler → apply_decision pipeline
   - priority ordering within an event bucket
   - BLOCK short-circuits subsequent components
-  - mount → event-name alias (legacy components default listens=mount.value)
-  - explicit listens="custom_event_name" works
   - in-handler ctx.emit re-enters the dispatcher synchronously
   - recursion depth cap fires when components form a loop
 
-Smoke-only — full sibling integration lands in Phase C/D when the
-runtime swaps its ad-hoc `_dispatch_*` calls for `dispatcher.emit`.
+Smoke-only — full sibling integration is exercised by
+`tests/test_phase_f_demos.py` (which loads real component files via the
+sibling registry).
 """
 from __future__ import annotations
 
@@ -24,8 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agent.component_runtime.types import (  # noqa: E402
-    Component, ComponentClass, ComponentContext, Decision, DecisionKind,
-    Mount, Trust,
+    Component, ComponentClass, ComponentContext, Decision, DecisionKind, Trust,
 )
 from meta_harness.component_runtime_core.dispatcher import Dispatcher  # noqa: E402
 from meta_harness.component_runtime_core.event_context import EventContext  # noqa: E402
@@ -46,8 +44,7 @@ def _trust() -> Trust:
 def _make_component(
     *,
     name: str,
-    mount: Mount,
-    listens: str = "",
+    listens: str,
     priority: int = 100,
     matcher=None,
     handler=None,
@@ -57,18 +54,16 @@ def _make_component(
     return Component(
         name=name,
         cls=cls,
-        mount=mount,
+        listens=listens,
         matcher=matcher,
         handler=handler or (lambda ctx: Decision.allow()),
         trust=_trust(),
         priority=priority,
-        listens=listens,
         emits=emits,
     )
 
 
 def _validate(comp, event_name, kind):
-    # Permissive validator for tests — accept anything except None.
     if kind is None:
         raise RuntimeError("decision.kind must not be None")
 
@@ -77,6 +72,12 @@ def _apply_default(ctx: ComponentContext, decision: Decision, comp: Component) -
     """Track which decisions reached apply, with a BLOCK short-circuit."""
     ctx.shared.setdefault("applied", []).append((comp.name, decision.kind.value))
     return decision.kind is DecisionKind.BLOCK
+
+
+def _make_ctx(**overrides: Any) -> ComponentContext:
+    fields = dict(benchmark="test", task_id="t1", extras={})
+    fields.update(overrides)
+    return ComponentContext(**fields)
 
 
 # --------------------------------------------------------------------------- #
@@ -96,7 +97,7 @@ def test_emit_fires_matching_subscriber():
 
     comp = _make_component(
         name="c1",
-        mount=Mount.PRE_PROMPT_BUILD,
+        listens="pre_prompt_build",
         matcher=matcher,
         handler=handler,
     )
@@ -105,10 +106,7 @@ def test_emit_fires_matching_subscriber():
         validate_decision=_validate,
         apply_decision=_apply_default,
     )
-
-    ctx = ComponentContext(
-        mount=Mount.PRE_PROMPT_BUILD, benchmark="test", task_id="t1", extras={},
-    )
+    ctx = _make_ctx()
     disp.emit("pre_prompt_build", ctx)
 
     assert seen == ["handler-ran"]
@@ -126,11 +124,11 @@ def test_priority_ordering_within_bucket():
         return h
 
     comps = [
-        _make_component(name="low", mount=Mount.POST_LLM_RESPONSE,
+        _make_component(name="low", listens="post_llm_response",
                         priority=10, handler=make_handler("low")),
-        _make_component(name="high", mount=Mount.POST_LLM_RESPONSE,
+        _make_component(name="high", listens="post_llm_response",
                         priority=200, handler=make_handler("high")),
-        _make_component(name="mid", mount=Mount.POST_LLM_RESPONSE,
+        _make_component(name="mid", listens="post_llm_response",
                         priority=100, handler=make_handler("mid")),
     ]
     disp = Dispatcher(
@@ -138,9 +136,7 @@ def test_priority_ordering_within_bucket():
         validate_decision=_validate,
         apply_decision=_apply_default,
     )
-    ctx = ComponentContext(
-        mount=Mount.POST_LLM_RESPONSE, benchmark="test", task_id="t1", extras={},
-    )
+    ctx = _make_ctx()
     disp.emit("post_llm_response", ctx)
 
     assert order == ["low", "mid", "high"]
@@ -156,60 +152,35 @@ def test_block_short_circuits_remaining_components():
         raise AssertionError("should not run after BLOCK")
 
     comps = [
-        _make_component(name="first", mount=Mount.PRE_PROMPT_BUILD,
+        _make_component(name="first", listens="pre_prompt_build",
                         priority=10, handler=handler_block),
-        _make_component(name="second", mount=Mount.PRE_PROMPT_BUILD,
+        _make_component(name="second", listens="pre_prompt_build",
                         priority=20, handler=handler_never),
     ]
     disp = Dispatcher(
         comps, validate_decision=_validate, apply_decision=_apply_default,
     )
-    ctx = ComponentContext(
-        mount=Mount.PRE_PROMPT_BUILD, benchmark="test", task_id="t1", extras={},
-    )
+    ctx = _make_ctx()
     disp.emit("pre_prompt_build", ctx)
     assert ctx.shared["applied"] == [("first", "block")]
 
 
-def test_mount_to_event_name_alias():
-    """Legacy component (no explicit listens) subscribes to mount.value."""
-    comp = _make_component(name="legacy", mount=Mount.PRE_PROMPT_BUILD)
-    assert comp.listens == "pre_prompt_build"  # __post_init__ filled it
-    disp = Dispatcher(
-        [comp], validate_decision=_validate, apply_decision=_apply_default,
-    )
-    assert disp.known_events() == ["pre_prompt_build"]
-
-
-def test_explicit_custom_event_subscription():
-    """A component with listens='custom_x' is registered to that event,
-    independent of its Mount value."""
-    comp = _make_component(
-        name="new_style",
-        mount=Mount.SESSION_END,  # placeholder; not the actual subscription
-        listens="on_length_truncation",
-    )
+def test_listens_routes_to_named_bucket():
+    """Components are bucketed by their string `listens` field."""
+    comp = _make_component(name="custom", listens="on_length_truncation")
     disp = Dispatcher(
         [comp], validate_decision=_validate, apply_decision=_apply_default,
     )
     assert disp.known_events() == ["on_length_truncation"]
-    # And it does NOT fire on the mount-value event.
-    ctx = ComponentContext(
-        mount=Mount.SESSION_END, benchmark="test", task_id="t1", extras={},
-    )
+    # And it does NOT fire on a different event.
+    ctx = _make_ctx()
     disp.emit("session_end", ctx)
     assert "applied" not in ctx.shared
 
 
 def test_in_handler_emit_reenters_dispatcher():
     """ctx.emit() from within a handler re-fires another component listening
-    to the custom event, synchronously, in the same task.
-
-    Uses EventContext directly because Phase C wires sibling
-    ComponentContext → EventContext inheritance; in Phase B the
-    dispatcher's `ctx` is duck-typed (Any), so any context exposing
-    `.shared` and `.emit` works.
-    """
+    to the custom event, synchronously, in the same task."""
     fire_log: list[str] = []
 
     def a_handler(ctx):
@@ -222,12 +193,11 @@ def test_in_handler_emit_reenters_dispatcher():
         return Decision.allow()
 
     comp_a = _make_component(
-        name="A", mount=Mount.PRE_PROMPT_BUILD, handler=a_handler,
+        name="A", listens="pre_prompt_build", handler=a_handler,
         emits=("on_a_done",),
     )
     comp_b = _make_component(
-        name="B", mount=Mount.SESSION_END, listens="on_a_done",
-        handler=b_handler,
+        name="B", listens="on_a_done", handler=b_handler,
     )
     disp = Dispatcher(
         [comp_a, comp_b], validate_decision=_validate, apply_decision=_apply_default,
@@ -248,8 +218,7 @@ def test_emit_recursion_depth_cap():
         return Decision.allow()
 
     comp = _make_component(
-        name="loop_comp", mount=Mount.PRE_PROMPT_BUILD, listens="loop",
-        handler=looping_handler,
+        name="loop_comp", listens="loop", handler=looping_handler,
     )
     disp = Dispatcher(
         [comp], validate_decision=_validate, apply_decision=_apply_default,

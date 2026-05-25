@@ -23,9 +23,7 @@ from typing import Iterable
 from meta_harness.component_runtime_core.registry import load_module_from_path
 
 from .policy import validate_registration, validate_trust
-from .types import Component, Mount
-
-
+from .types import Component
 # Default directory is `agent/components_enterpriseops_calendar` purely so
 # that bare imports don't error; in practice callers always pass
 # `comp_dir` explicitly (one dir per domain).
@@ -38,7 +36,7 @@ def _pkg_prefix_for(path: Path) -> str:
     return f"agent.components_enterpriseops.{path.parent.name}"
 
 
-def load_components(component_files: Iterable[str | Path]) -> dict[Mount, list[Component]]:
+def load_components(component_files: Iterable[str | Path]) -> list[Component]:
     by_name: dict[str, Component] = {}
     for raw in component_files:
         path = Path(raw).resolve()
@@ -48,33 +46,25 @@ def load_components(component_files: Iterable[str | Path]) -> dict[Mount, list[C
         if not hasattr(mod, "COMPONENT"):
             raise AttributeError(f"component module {path} must export `COMPONENT`")
         comp: Component = mod.COMPONENT
-        validate_registration(comp.cls, comp.mount)
+        validate_registration(comp.cls, comp.listens)
         validate_trust(comp.cls, comp.trust)
         by_name[comp.name] = comp
 
-    grouped: dict[Mount, list[Component]] = {m: [] for m in Mount}
-    for comp in by_name.values():
-        grouped[comp.mount].append(comp)
-    for mount, comps in grouped.items():
-        comps.sort(key=lambda c: c.priority)
-    return grouped
+    return sorted(by_name.values(), key=lambda c: c.priority)
 
 
 def load_components_from_dir(directory: str | Path = COMPONENTS_DIR_DEFAULT,
                              only: Iterable[str] | None = None
-                             ) -> dict[Mount, list[Component]]:
+                             ) -> list[Component]:
     directory = Path(directory)
     if not directory.exists():
-        return {m: [] for m in Mount}
+        return []
     files = sorted(p for p in directory.glob("*.py")
                    if not p.name.startswith("_"))
     if not files:
-        return {m: [] for m in Mount}
-    grouped = load_components(files)
+        return []
+    all_comps = load_components(files)
     if only is None:
-        return grouped
+        return all_comps
     only_set = set(only)
-    return {
-        mount: [c for c in comps if c.name in only_set]
-        for mount, comps in grouped.items()
-    }
+    return [c for c in all_comps if c.name in only_set]

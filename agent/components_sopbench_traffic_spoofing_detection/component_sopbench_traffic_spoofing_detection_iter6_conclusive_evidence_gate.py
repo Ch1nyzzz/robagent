@@ -95,7 +95,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -204,7 +203,7 @@ def _payload_equals(payload: str, action: str) -> bool:
 
 
 def _matches(ctx: ComponentContext) -> bool:
-    if ctx.mount is not Mount.PRE_FINAL_EMIT:
+    if ctx.event != "pre_final_emit":
         return False
     triple = _extract_band_and_actions(ctx.sop_text or "")
     if triple is None:
@@ -232,7 +231,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_conclusive_evidence_gate",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.PRE_FINAL_EMIT,
+    listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

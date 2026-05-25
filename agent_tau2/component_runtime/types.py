@@ -47,26 +47,6 @@ from meta_harness.component_runtime_core.event_context import EventContext
 # --- enums -------------------------------------------------------------------
 
 
-class Mount(str, Enum):
-    """Lifecycle / workflow points a Component can attach to.
-
-    Dispatch order for a single LLM round-trip:
-      PRE_CONTEXT_BUILD → SESSION_START → USER_PROMPT_SUBMIT → (LLM) →
-      POST_LLM_RESPONSE → PRE_TOOL_USE → (env) → POST_TOOL_USE → STOP →
-      SESSION_END.
-
-    v1 actually dispatches PRE_CONTEXT_BUILD, SESSION_START, PRE_TOOL_USE,
-    POST_LLM_RESPONSE, POST_TOOL_USE. The remaining three values are
-    declared and load-time validated but not yet dispatched.
-    """
-    PRE_CONTEXT_BUILD   = "pre_context_build"     # NEW vs hooks
-    SESSION_START       = "session_start"
-    USER_PROMPT_SUBMIT  = "user_prompt_submit"
-    PRE_TOOL_USE        = "pre_tool_use"
-    POST_LLM_RESPONSE   = "post_llm_response"     # NEW vs hooks
-    POST_TOOL_USE       = "post_tool_use"
-    STOP                = "stop"
-    SESSION_END         = "session_end"
 
 
 class DecisionKind(str, Enum):
@@ -143,7 +123,6 @@ class ComponentContext(EventContext):
     the agent's `_session_state` (for SESSION scope) or the disk-backed
     cross-session store (CROSS_SESSION scope; reserved in v1).
     """
-    mount: Mount
     # Convenience accessors (populated per mount):
     tool_call: Optional[Any] = None              # ToolCall, for PRE_TOOL_USE
     incoming_message: Optional[Any] = None       # UserMessage / ToolMessage
@@ -179,7 +158,7 @@ Handler = Callable[[ComponentContext], Decision]
 # --- component ---------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Component:
     """A registered Component.
 
@@ -191,23 +170,15 @@ class Component:
     """
     name: str
     cls: ComponentClass
-    mount: Mount
     matcher: Optional[Matcher]
     handler: Handler
     trust: Trust
     state_scope: StateScope = StateScope.NONE
     capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100              # smaller fires first
-    # Phase B (event-runtime migration) additions:
-    #   `listens` is the dispatcher subscription key. Defaults via
-    #   __post_init__ to `mount.value` so existing components migrate
-    #   transparently. `emits` self-documents custom Tier-2/3 events.
-    listens: str = ""
+    listens: str
     emits: tuple[str, ...] = ()
 
-    def __post_init__(self):
-        if not self.listens:
-            object.__setattr__(self, "listens", self.mount.value)
 
 
 # --- helpers -----------------------------------------------------------------

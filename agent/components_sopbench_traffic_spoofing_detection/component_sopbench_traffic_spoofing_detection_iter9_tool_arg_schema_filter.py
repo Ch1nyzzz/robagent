@@ -99,7 +99,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -156,7 +155,7 @@ def _extra_keys(args: dict[str, Any], declared: dict[str, Any]) -> list[str]:
 
 
 def _matches(ctx: ComponentContext) -> bool:
-    if ctx.mount is not Mount.PRE_TOOL_USE:
+    if ctx.event != "pre_tool_use":
         return False
     if not ctx.current_tool_name or not isinstance(ctx.current_tool_args, dict):
         return False
@@ -195,7 +194,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_tool_arg_schema_filter",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.PRE_TOOL_USE,
+    listens="pre_tool_use",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

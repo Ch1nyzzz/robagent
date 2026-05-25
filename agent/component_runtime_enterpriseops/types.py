@@ -36,25 +36,6 @@ from meta_harness.component_runtime_core.event_context import EventContext
 # --- enums -------------------------------------------------------------------
 
 
-class Mount(str, Enum):
-    """Lifecycle points an EnterpriseOps-Gym component can attach to.
-
-    Dispatch order within one task:
-      SESSION_START
-        → PRE_PROMPT_BUILD
-        → (loop) PRE_LLM_TURN → (LLM call) → POST_LLM_RESPONSE
-            → (for each tool call: PRE_TOOL_USE → (MCP tool) → POST_TOOL_USE)
-        → PRE_FINAL_EMIT
-        → SESSION_END
-    """
-    SESSION_START      = "session_start"        # after DB seeded + MCP tools discovered, before prompts built
-    PRE_PROMPT_BUILD   = "pre_prompt_build"     # rewrite user_prompt or inject system text
-    PRE_LLM_TURN       = "pre_llm_turn"         # per-turn; rewrite messages list
-    POST_LLM_RESPONSE  = "post_llm_response"    # per-turn; inspect assistant content + tool_calls
-    PRE_TOOL_USE       = "pre_tool_use"         # per MCP tool call; rewrite args or block
-    POST_TOOL_USE      = "post_tool_use"        # per MCP tool call; rewrite result string fed back to model
-    PRE_FINAL_EMIT     = "pre_final_emit"       # last assistant content before SQL verifiers run
-    SESSION_END        = "session_end"          # bookkeeping after verifiers
 
 
 class DecisionKind(str, Enum):
@@ -135,7 +116,6 @@ class ComponentContext(EventContext):
     come after EventContext's default fields.
     """
     # Stable per-task context (read-only after PRE_PROMPT_BUILD):
-    mount: Mount                                    # most recent Mount enum (legacy)
     benchmark: str                                  # domain slug, e.g. "calendar", "itsm"
     user_info: dict = field(default_factory=dict)   # {user_id, name, email, timezone}
     gym_servers: list = field(default_factory=list) # list of {mcp_server_name, mcp_server_url, ...}
@@ -182,27 +162,19 @@ Handler = Callable[[ComponentContext], Decision]
 # --- component ---------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Component:
     name: str
     cls: ComponentClass
-    mount: Mount
     matcher: Optional[Matcher]
     handler: Handler
     trust: Trust
     state_scope: StateScope = StateScope.NONE
     capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100              # smaller fires first
-    # Phase B (event-runtime migration) additions:
-    #   `listens` is the dispatcher subscription key. Defaults via
-    #   __post_init__ to `mount.value` so existing components migrate
-    #   transparently. `emits` self-documents custom Tier-2/3 events.
-    listens: str = ""
+    listens: str
     emits: tuple[str, ...] = ()
 
-    def __post_init__(self):
-        if not self.listens:
-            object.__setattr__(self, "listens", self.mount.value)
 
 
 def matcher_for_tool(tool_name: str) -> Matcher:

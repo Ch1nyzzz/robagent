@@ -30,7 +30,6 @@ from .types import (
     Component,
     ComponentContext,
     DecisionKind,
-    Mount,
 )
 from .workflow import Workflow
 
@@ -174,21 +173,15 @@ class Dispatcher:
         self,
         *,
         workflow: Workflow,
-        components_by_mount: dict[Mount, list[Component]],
+        components: list[Component],
         run_tag: str = "default",
         state_dir: Optional[Path] = None,
     ) -> None:
         self.workflow = workflow
         self.run_tag = run_tag
         self._state_dir = state_dir
-        # Flatten the mount-bucketed input dict for the core dispatcher;
-        # the dict itself is not retained — components subscribe via
-        # `Component.listens` (auto-set to mount.value by __post_init__).
-        flat: list[Component] = []
-        for _mount, comps in components_by_mount.items():
-            flat.extend(comps)
         self._core = _CoreDispatcher(
-            flat,
+            list(components),
             validate_decision=_validate_for_core,
             apply_decision=_apply_decision_sopbench,
             trace_sink=self._trace_sink,
@@ -224,18 +217,13 @@ class Dispatcher:
 
     # --- dispatch ---------------------------------------------------------
 
-    def emit(self, event_name: str, ctx: ComponentContext,
-             *, sync_mount: Optional[Mount] = None) -> None:
-        """Unified dispatch entry. Both legacy mount-aligned events
-        (caller passes `event_name=Mount.X.value`, `sync_mount=Mount.X`)
-        and Tier-1 events (caller passes the event-name string, no
-        sync_mount) route here. `sync_mount` updates `ctx.mount` so
-        legacy matchers reading `ctx.mount` see the right value; the
-        PRE_TOOL_USE skip-flag reset stays attached to its mount."""
-        if sync_mount is not None:
-            ctx.mount = sync_mount
-            if sync_mount is Mount.PRE_TOOL_USE:
-                ctx.shared.pop("skip_current_tool", None)
+    def emit(self, event_name: str, ctx: ComponentContext) -> None:
+        """Fire `event_name` through the unified core dispatcher.
+        Per-event side-effects (skip_current_tool reset before
+        pre_tool_use, etc.) are handled here or in
+        `_apply_decision_sopbench` based on `ctx.event`."""
+        if event_name == "pre_tool_use":
+            ctx.shared.pop("skip_current_tool", None)
         self._core.emit(event_name, ctx)
 
     def wire_capabilities(self, ctx: ComponentContext) -> None:
@@ -299,14 +287,11 @@ def build_dispatcher(
         _coerce_active_names(wf)  # raises SystemExit on mismatch
 
         active = list(wf.active_nodes())
-        if active:
-            by_mount = load_components_from_dir(cd, only=active)
-        else:
-            by_mount = {m: [] for m in Mount}
+        components = load_components_from_dir(cd, only=active) if active else []
 
         disp = Dispatcher(
             workflow=wf,
-            components_by_mount=by_mount,
+            components=components,
             run_tag=tag,
             state_dir=state_dir,
         )

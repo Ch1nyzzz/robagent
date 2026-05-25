@@ -25,7 +25,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -94,7 +93,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_dangerous_goods_final_xml_recovery",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.PRE_FINAL_EMIT,
+    listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

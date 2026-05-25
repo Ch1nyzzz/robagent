@@ -4,7 +4,7 @@ import unicodedata
 
 from agent.component_runtime.types import (
     Capability, Component, ComponentClass, ComponentContext,
-    Decision, Mount, StateScope, Trust,
+    Decision, StateScope, Trust,
 )
 
 _CUNEIFORM_NUMERIC_START = 0x12400
@@ -54,7 +54,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="cuneiform_numeric_decoder",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.PRE_PROMPT_BUILD,
+    listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

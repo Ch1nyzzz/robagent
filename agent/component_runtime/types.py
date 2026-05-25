@@ -46,24 +46,24 @@ from meta_harness.component_runtime_core.event_context import EventContext
 
 
 # --- enums -------------------------------------------------------------------
-
-
-class Mount(str, Enum):
-    """Lifecycle points a GAIA component can attach to.
-
-    Dispatch order within one task:
-      SESSION_START → PRE_PROMPT_BUILD → (LLM) → POST_LLM_RESPONSE →
-      (default answer extract) → PRE_ANSWER_EMIT → SESSION_END.
-
-    v1 dispatches SESSION_START / PRE_PROMPT_BUILD / POST_LLM_RESPONSE /
-    PRE_ANSWER_EMIT. SESSION_END is declared and load-time validated but
-    only used for bookkeeping in v1 (no decision honoured).
-    """
-    SESSION_START      = "session_start"        # static, framework-invariant injection
-    PRE_PROMPT_BUILD   = "pre_prompt_build"     # per-task; can rewrite prompt or block
-    POST_LLM_RESPONSE  = "post_llm_response"    # raw LLM content available; rewrite / block / inject
-    PRE_ANSWER_EMIT    = "pre_answer_emit"      # final extracted answer; normalise / block
-    SESSION_END        = "session_end"          # bookkeeping only (v1)
+#
+# Lifecycle event names a GAIA component can subscribe to via `listens=`:
+#
+#   "session_start"        — static, framework-invariant injection
+#   "pre_prompt_build"     — per-task; can rewrite prompt or block
+#   "task_received"        — lifecycle anchor right after ctx construction
+#   "pre_context_build"    — alias of pre_prompt_build (cross-sibling vocab)
+#   "pre_agent_construct"  — last hook before messages list is sealed
+#   "pre_llm_request"      — just before the SUT chat() call
+#   "post_llm_response"    — raw LLM content available; rewrite / block / inject
+#   "post_llm_response_raw"— alias of post_llm_response
+#   "on_length_truncation" — synthesised when finish_reason == "length"
+#   "on_empty_response"    — synthesised when raw_response is empty
+#   "pre_answer_emit"      — final extracted answer; normalise / block
+#   "session_end"          — bookkeeping at end of task
+#
+# Plus any custom Tier-2/3 event a component declares via `emits=(...,)`
+# and another component subscribes to via `listens="..."`.
 
 
 class DecisionKind(str, Enum):
@@ -100,19 +100,23 @@ class Decision:
 
     @staticmethod
     def rewrite(payload: str) -> "Decision":
-        """Replace the live payload at this mount.
+        """Replace the live payload at the firing event.
 
-        Mount → payload semantics:
-          PRE_PROMPT_BUILD  → payload is the new task_prompt text.
-          POST_LLM_RESPONSE → payload is the new raw response content.
-          PRE_ANSWER_EMIT   → payload is the new final answer string (or None to mark blocked).
+        Event → payload semantics:
+          pre_prompt_build / pre_context_build  → new task_prompt text
+          post_llm_response / on_length_truncation / on_empty_response
+                                                → new raw response content
+          pre_answer_emit                       → new final answer string
+                                                  (or None to mark blocked)
         """
         return Decision(DecisionKind.REWRITE, payload=payload)
 
     @staticmethod
     def inject_context(text: str) -> "Decision":
-        """Append text to the system_prompt (SESSION_START / PRE_PROMPT_BUILD)
-        or to the next recovery LLM call's context (POST_LLM_RESPONSE).
+        """Append text to the system_prompt (at pre-LLM events: session_start,
+        pre_prompt_build, pre_context_build, task_received, pre_agent_construct,
+        pre_llm_request) or to the next recovery LLM call's context (at
+        post-LLM events: post_llm_response, on_length_truncation, on_empty_response).
         """
         return Decision(DecisionKind.INJECT_CONTEXT, payload=text)
 
@@ -124,29 +128,24 @@ class Decision:
 class ComponentContext(EventContext):
     """Argument to every matcher / handler.
 
-    Reused across components firing at the same mount / event. Components
-    may read `shared` / `state` / `upstream`; runtime-owned fields
-    (`prompt` / `raw_response` / `answer`) are mutated only by the
-    dispatcher applying Decisions.
+    Reused across components firing at the same event. Components may read
+    `shared` / `state` / `upstream`; runtime-owned fields (`prompt` /
+    `raw_response` / `answer`) are mutated only by the dispatcher applying
+    Decisions. Handlers identify the current event via `ctx.event` (set by
+    the dispatcher just before firing each subscriber).
 
-    Inherits from EventContext (Phase C): `event`, `task_id`, `shared`,
-    `state`, `persistent_state`, `upstream`, `blocked`, `blocked_reason`,
-    plus the `ctx.chat(...)` / `ctx.fetch(...)` / `ctx.read_file(...)` /
+    Inherits from EventContext: `event`, `task_id`, `shared`, `state`,
+    `persistent_state`, `upstream`, `blocked`, `blocked_reason`, plus the
+    `ctx.chat(...)` / `ctx.fetch(...)` / `ctx.read_file(...)` /
     `ctx.emit(...)` / `ctx.emit_upstream(...)` capability methods.
-
-    `@dataclass(kw_only=True)` is required because EventContext fields all
-    have defaults; without kw_only Python would refuse to add non-default
-    subclass fields (mount / benchmark / extras) after default fields.
-    All existing call sites already use kwargs (see base.py::run_task).
     """
-    # Mount-specific payloads (only the relevant ones are populated):
-    mount: Mount                                  # most recent Mount enum (legacy)
+    # Event-specific payloads (only the relevant ones are populated):
     benchmark: str                                # bench slug
     extras: dict                                  # per-task extras
     system_prompt: str = ""                       # current base system prompt
-    prompt: Optional[str] = None                  # task_prompt at PRE_PROMPT_BUILD
-    raw_response: Optional[str] = None            # LLM raw content at POST_LLM_RESPONSE / PRE_ANSWER_EMIT
-    answer: Optional[str] = None                  # extracted answer at PRE_ANSWER_EMIT
+    prompt: Optional[str] = None                  # task_prompt at pre_prompt_build / pre_context_build
+    raw_response: Optional[str] = None            # LLM raw content at post_llm_response / pre_answer_emit
+    answer: Optional[str] = None                  # extracted answer at pre_answer_emit
     log: Any = None                               # EventLog (read-only access for handlers)
 
 
@@ -159,29 +158,26 @@ Handler = Callable[[ComponentContext], Decision]
 # --- component ---------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Component:
+    """A registered Component.
+
+    `listens` is the dispatcher subscription key — the string name of the
+    event this component fires on. Use a runtime-emitted lifecycle name
+    (see the comment block at the top of this file) or a custom Tier-2/3
+    name you publish elsewhere in the workflow.
+
+    `emits` self-documents the custom event names this component raises
+    via `ctx.emit(...)`; the runtime does not enforce, the field is read
+    by skill / proposer tooling for event-name discovery.
+    """
     name: str
     cls: ComponentClass
-    mount: Mount
+    listens: str
     matcher: Optional[Matcher]
     handler: Handler
     trust: Trust
     state_scope: StateScope = StateScope.NONE
     capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100
-    # Phase B (event-runtime migration) additions:
-    #   `listens` is the dispatcher subscription key. If left empty, the
-    #   __post_init__ below back-fills it from `mount.value` so existing
-    #   mount-based components keep working under the new dispatcher with
-    #   no source change. New components may set `listens="custom_event"`
-    #   and use `mount` purely as a placeholder for policy validation.
-    #   `emits` self-documents the custom Tier-2/3 events this component
-    #   raises via `ctx.emit(...)`; the runtime does not enforce, the
-    #   field is read by skill / proposer tooling for event-name discovery.
-    listens: str = ""
     emits: tuple[str, ...] = ()
-
-    def __post_init__(self):
-        if not self.listens:
-            object.__setattr__(self, "listens", self.mount.value)

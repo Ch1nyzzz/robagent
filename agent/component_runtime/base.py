@@ -5,11 +5,11 @@ The `run_benchmark.py::_resolve_run_task` resolver imports
 `--agent-version component_runtime`. The function signature is identical
 to `agent/base.py::run_task` so the orchestrator does not change.
 
-Composition: at each Mount, every active component's matcher is queried;
-matching handlers run in priority order; their Decisions mutate the
-in-flight state (system_prompt / prompt / raw_response / answer) per the
-policy matrix. Component fires append one row per fire to
-`.component-state/<run_tag>/fired.jsonl` for the durability audit.
+Composition: at each lifecycle event, every active component's matcher
+is queried; matching handlers run in priority order; their Decisions
+mutate the in-flight state (system_prompt / prompt / raw_response /
+answer) per the policy matrix. Component fires append one row per fire
+to `.component-state/<run_tag>/fired.jsonl` for the durability audit.
 
 Workflow source on disk:
   meta_harness/workflows/gaia_main.yaml  (default; override with COMPONENT_WORKFLOW env var)
@@ -36,7 +36,6 @@ from .types import (
     Component,
     ComponentContext,
     DecisionKind,
-    Mount,
 )
 from .workflow import Workflow
 
@@ -114,11 +113,9 @@ def _load_active() -> tuple[Workflow, Dispatcher]:
 
     comp_dir = os.environ.get("COMPONENT_DIR", str(COMPONENTS_DIR_DEFAULT))
     active = list(wf.active_nodes())
-    flattened: list[Component] = []
-    if active:
-        grouped = load_components_from_dir(comp_dir, only=active)
-        for mount, comps in grouped.items():
-            flattened.extend(comps)
+    flattened: list[Component] = (
+        load_components_from_dir(comp_dir, only=active) if active else []
+    )
 
     _WORKFLOW = wf
     _DISPATCHER = Dispatcher(
@@ -135,9 +132,8 @@ def _load_active() -> tuple[Workflow, Dispatcher]:
 
 def _validate_for_dispatcher(comp: Component, event_name: str,
                              kind: DecisionKind) -> None:
-    """Adapter: the core Dispatcher passes `event_name: str`, the sibling
-    policy validator accepts Mount enum OR string (see policy._normalise_key).
-    Forward unchanged — policy handles both."""
+    """Adapter: the core Dispatcher passes `event_name: str`; the policy
+    validator takes the same shape."""
     validate_decision(comp.cls, event_name, kind)
 
 
@@ -146,18 +142,18 @@ def _apply_decision(ctx: ComponentContext, decision: "Decision",  # noqa: F821
     """Mutate ctx per Decision; return True to stop firing remaining
     subscribers at this event.
 
-    Event → side-effect mapping (mount-style + Tier-1 names normalised):
+    Event → side-effect mapping:
 
-      INJECT_CONTEXT @ pre-LLM-ish events  → append to ctx.system_prompt
+      INJECT_CONTEXT @ pre-LLM events  → append to ctx.system_prompt
                        (session_start, pre_prompt_build, pre_context_build,
                         task_received, pre_agent_construct, pre_llm_request)
-      INJECT_CONTEXT @ post-LLM-ish events → push onto ctx.shared['post_llm_inject']
+      INJECT_CONTEXT @ post-LLM events → push onto ctx.shared['post_llm_inject']
                        (post_llm_response[_raw], on_length_truncation, on_empty_response)
-      REWRITE @ pre_prompt_build / pre_context_build   → ctx.prompt
+      REWRITE @ pre_prompt_build / pre_context_build → ctx.prompt
       REWRITE @ post_llm_response[_raw] /
                  on_length_truncation / on_empty_response → ctx.raw_response
-      REWRITE @ pre_answer_emit                        → ctx.answer (None marks blocked)
-      BLOCK   @ any                                    → ctx.blocked + stop=True
+      REWRITE @ pre_answer_emit                       → ctx.answer (None = blocked)
+      BLOCK   @ any                                   → ctx.blocked + stop=True
     """
     event = ctx.event or ""
     kind = decision.kind
@@ -228,14 +224,6 @@ def _wire_capabilities(ctx: ComponentContext, dispatcher: Dispatcher) -> None:
     # ctx._impl_fetch / _impl_read_file intentionally left None for gaia v1.
 
 
-def _emit(dispatcher: Dispatcher, event_name: str,
-          ctx: ComponentContext, *, sync_mount: Optional[Mount] = None) -> None:
-    """Fire one event. Optionally keep ctx.mount synced to a Mount enum so
-    legacy handlers that read ctx.mount still see the right value when the
-    event has a Mount alias."""
-    if sync_mount is not None:
-        ctx.mount = sync_mount
-    dispatcher.emit(event_name, ctx)
 
 
 # --- entry point -------------------------------------------------------------
@@ -264,7 +252,6 @@ def run_task(
     wf, dispatcher = _load_active()
 
     ctx = ComponentContext(
-        mount=Mount.SESSION_START,
         benchmark=benchmark,
         task_id=task_id,
         extras=extras,
@@ -285,29 +272,29 @@ def run_task(
 
     # --- setup phase ---------------------------------------------------------
     # Tier-1 task_received: lifecycle anchor right after ctx construction.
-    _emit(dispatcher, "task_received", ctx, sync_mount=Mount.SESSION_START)
+    dispatcher.emit("task_received", ctx)
     if ctx.blocked:
         return _blocked_return("task_received")
 
     # Legacy SESSION_START mount (static framework-invariant injection).
-    _emit(dispatcher, "session_start", ctx, sync_mount=Mount.SESSION_START)
+    dispatcher.emit("session_start", ctx)
     if ctx.blocked:
         return _blocked_return("session_start")
 
     # Legacy PRE_PROMPT_BUILD mount, paired with Tier-1 alias pre_context_build
     # (per the cross-sibling event vocabulary). Legacy subscribers fire on the
     # mount.value, new event-style subscribers fire on the Tier-1 name.
-    _emit(dispatcher, "pre_prompt_build", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    dispatcher.emit("pre_prompt_build", ctx)
     if ctx.blocked:
         return _blocked_return("pre_prompt_build")
-    _emit(dispatcher, "pre_context_build", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    dispatcher.emit("pre_context_build", ctx)
     if ctx.blocked:
         return _blocked_return("pre_context_build")
 
     # Tier-1 pre_agent_construct: last chance to influence the inference
     # request before messages list is sealed. Components can append guidance
     # via INJECT_CONTEXT.
-    _emit(dispatcher, "pre_agent_construct", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    dispatcher.emit("pre_agent_construct", ctx)
     if ctx.blocked:
         return _blocked_return("pre_agent_construct")
 
@@ -317,7 +304,7 @@ def run_task(
     ]
 
     # Tier-1 pre_llm_request: anything wired to react just before the SUT call.
-    _emit(dispatcher, "pre_llm_request", ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    dispatcher.emit("pre_llm_request", ctx)
     if ctx.blocked:
         return _blocked_return("pre_llm_request")
 
@@ -344,10 +331,10 @@ def run_task(
     ctx.shared["finish_reason"] = result.get("finish_reason")
 
     # Legacy POST_LLM_RESPONSE + Tier-1 post_llm_response_raw twin emit.
-    _emit(dispatcher, "post_llm_response", ctx, sync_mount=Mount.POST_LLM_RESPONSE)
+    dispatcher.emit("post_llm_response", ctx)
     if ctx.blocked:
         return _blocked_return("post_llm_response")
-    _emit(dispatcher, "post_llm_response_raw", ctx, sync_mount=Mount.POST_LLM_RESPONSE)
+    dispatcher.emit("post_llm_response_raw", ctx)
     if ctx.blocked:
         return _blocked_return("post_llm_response_raw")
 
@@ -357,13 +344,11 @@ def run_task(
     # matcher). Both gates are independent: an empty response with
     # finish_reason=length fires both.
     if (result.get("finish_reason") or "") == "length":
-        _emit(dispatcher, "on_length_truncation", ctx,
-              sync_mount=Mount.POST_LLM_RESPONSE)
+        dispatcher.emit("on_length_truncation", ctx)
         if ctx.blocked:
             return _blocked_return("on_length_truncation")
     if not (ctx.raw_response or "").strip():
-        _emit(dispatcher, "on_empty_response", ctx,
-              sync_mount=Mount.POST_LLM_RESPONSE)
+        dispatcher.emit("on_empty_response", ctx)
         if ctx.blocked:
             return _blocked_return("on_empty_response")
 
@@ -372,7 +357,7 @@ def run_task(
     ctx.answer = (ctx.raw_response or "").strip()
 
     # Legacy PRE_ANSWER_EMIT.
-    _emit(dispatcher, "pre_answer_emit", ctx, sync_mount=Mount.PRE_ANSWER_EMIT)
+    dispatcher.emit("pre_answer_emit", ctx)
     if ctx.blocked:
         return _blocked_return("pre_answer_emit")
 
@@ -381,7 +366,7 @@ def run_task(
     # Tier-1 session_end: terminal bookkeeping; decisions are ALLOW-only per
     # policy (any other decision is too late to matter on a single-shot
     # benchmark). Fired after answer emission so handlers see the final ctx.
-    _emit(dispatcher, "session_end", ctx, sync_mount=Mount.SESSION_END)
+    dispatcher.emit("session_end", ctx)
 
     return {
         "run_id": run_id,

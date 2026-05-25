@@ -53,7 +53,6 @@ from agent_tau2.component_runtime.types import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -99,7 +98,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="discoverable_audit_channel",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.SESSION_START,
+    listens="session_start",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

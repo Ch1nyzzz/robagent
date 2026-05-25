@@ -26,12 +26,11 @@ sys.path.insert(0, str(ROOT))
 
 def _load_gaia_demo():
     from agent.component_runtime.registry import load_components_from_dir
-    grouped = load_components_from_dir(
+    comps = load_components_from_dir(
         only=["component_demo_on_empty_response"],
     )
-    flat = [c for cs in grouped.values() for c in cs]
-    assert flat, "gaia demo did not load (registry empty)"
-    return flat[0]
+    assert comps, "gaia demo did not load (registry empty)"
+    return comps[0]
 
 
 def test_gaia_demo_loads_and_passes_policy():
@@ -55,7 +54,7 @@ def test_gaia_demo_fires_via_dispatcher_with_stubbed_chat():
     from meta_harness.component_runtime_core.dispatcher import Dispatcher
     from agent.component_runtime.policy import validate_decision
     from agent.component_runtime.types import (
-        ComponentContext, DecisionKind, Mount,
+        ComponentContext, DecisionKind,
     )
 
     comp = _load_gaia_demo()
@@ -91,7 +90,6 @@ def test_gaia_demo_fires_via_dispatcher_with_stubbed_chat():
     )
 
     ctx = ComponentContext(
-        mount=Mount.POST_LLM_RESPONSE,
         benchmark="gaia",
         task_id="demo-smoke-1",
         extras={},
@@ -114,12 +112,11 @@ def test_gaia_demo_handler_returns_allow_when_chat_unwired():
     """If ctx.chat is unwired (capability missing), handler must NOT crash —
     falls through to Decision.allow() so the demo is safe to dry-run."""
     from agent.component_runtime.types import (
-        ComponentContext, DecisionKind, Mount,
+        ComponentContext, DecisionKind,
     )
 
     comp = _load_gaia_demo()
     ctx = ComponentContext(
-        mount=Mount.POST_LLM_RESPONSE,
         benchmark="gaia",
         task_id="demo-smoke-2",
         extras={},
@@ -139,13 +136,12 @@ def test_gaia_demo_handler_returns_allow_when_chat_unwired():
 
 def _load_toolathlon_demo():
     from agent_toolathlon.component_runtime.registry import load_components_from_dir
-    grouped = load_components_from_dir(
+    comps = load_components_from_dir(
         "agent_toolathlon/components",
         only=["component_demo_artifact_gate"],
     )
-    flat = [c for cs in grouped.values() for c in cs]
-    assert flat, "toolathlon demo did not load (registry empty)"
-    return flat[0]
+    assert comps, "toolathlon demo did not load (registry empty)"
+    return comps[0]
 
 
 def test_toolathlon_demo_loads_and_passes_policy():
@@ -162,13 +158,12 @@ def test_toolathlon_demo_loads_and_passes_policy():
 def test_toolathlon_demo_blocks_when_artifact_missing():
     """User asked for report.md, workspace exists, file absent → BLOCK."""
     from agent_toolathlon.component_runtime.types import (
-        ComponentContext, DecisionKind, Mount,
+        ComponentContext, DecisionKind,
     )
 
     comp = _load_toolathlon_demo()
     with tempfile.TemporaryDirectory() as tmp:
         ctx = ComponentContext(
-            mount=Mount.STOP,
             task_id="demo-art-1",
             history=[
                 {"role": "user", "content": "please write a report to report.md"},
@@ -185,7 +180,7 @@ def test_toolathlon_demo_blocks_when_artifact_missing():
 def test_toolathlon_demo_allows_when_artifact_present():
     """Same task shape, but the file exists → ALLOW (termination proceeds)."""
     from agent_toolathlon.component_runtime.types import (
-        ComponentContext, DecisionKind, Mount,
+        ComponentContext, DecisionKind,
     )
 
     comp = _load_toolathlon_demo()
@@ -194,7 +189,6 @@ def test_toolathlon_demo_allows_when_artifact_present():
             f.write("# Report\n\nFindings.\n")
 
         ctx = ComponentContext(
-            mount=Mount.STOP,
             task_id="demo-art-2",
             history=[
                 {"role": "user", "content": "please write a report to report.md"},
@@ -209,12 +203,11 @@ def test_toolathlon_demo_allows_when_artifact_present():
 def test_toolathlon_demo_matcher_false_on_unrelated_task():
     """User did not ask for a report → matcher returns False; demo no-ops."""
     from agent_toolathlon.component_runtime.types import (
-        ComponentContext, Mount,
+        ComponentContext,
     )
 
     comp = _load_toolathlon_demo()
     ctx = ComponentContext(
-        mount=Mount.STOP,
         task_id="demo-art-3",
         history=[
             {"role": "user", "content": "list the prime numbers under 20"},

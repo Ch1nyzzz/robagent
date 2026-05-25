@@ -41,7 +41,6 @@ from agent_tau2.component_runtime.types import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -63,7 +62,7 @@ def _strip(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="close_account_strip_optional_reason",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.PRE_TOOL_USE,
+    listens="pre_tool_use",
     matcher=_matches,
     handler=_strip,
     state_scope=StateScope.NONE,

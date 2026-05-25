@@ -53,7 +53,6 @@ from orchestrators.react import ReactOrchestrator  # noqa: E402
 from agent.component_runtime_enterpriseops import (  # noqa: E402
     ComponentContext,
     Dispatcher,
-    Mount,
     build_dispatcher,
 )
 
@@ -125,7 +124,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
 
             # PRE_LLM_TURN -------------------------------------------------
             ctx.messages = list(messages)
-            disp.emit(Mount.PRE_LLM_TURN.value, ctx, sync_mount=Mount.PRE_LLM_TURN)
+            disp.emit("pre_llm_turn", ctx)
             if ctx.blocked:
                 break
             # Component may have REWRITTEN messages.
@@ -166,7 +165,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                 for tc in response_tool_calls
             ]
             ctx.finish_reason = str(response_metadata.get("finish_reason", ""))
-            disp.emit(Mount.POST_LLM_RESPONSE.value, ctx, sync_mount=Mount.POST_LLM_RESPONSE)
+            disp.emit("post_llm_response", ctx)
             if ctx.blocked:
                 break
             # Tier-1 post_llm_response_raw + synthesised failure-mode events.
@@ -220,7 +219,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                     break
 
                 # PRE_TOOL_USE ---------------------------------------------
-                disp.emit(Mount.PRE_TOOL_USE.value, ctx, sync_mount=Mount.PRE_TOOL_USE)
+                disp.emit("pre_tool_use", ctx)
                 if ctx.blocked:
                     break
 
@@ -265,7 +264,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                 })
 
                 # POST_TOOL_USE --------------------------------------------
-                disp.emit(Mount.POST_TOOL_USE.value, ctx, sync_mount=Mount.POST_TOOL_USE)
+                disp.emit("post_tool_use", ctx)
                 if ctx.blocked:
                     break
                 # Tier-1 post_tool_result_raw + on_tool_error.
@@ -374,7 +373,6 @@ async def run_task(
     )
 
     ctx = ComponentContext(
-        mount=Mount.SESSION_START,
         benchmark=domain,
         task_id=task_id,
         user_info=task_config_dict.get("user_info", {}) or {},
@@ -393,12 +391,12 @@ async def run_task(
         return _blocked_result(domain, task_id, ctx)
 
     # SESSION_START -----------------------------------------------------
-    disp.emit(Mount.SESSION_START.value, ctx, sync_mount=Mount.SESSION_START)
+    disp.emit("session_start", ctx)
     if ctx.blocked:
         return _blocked_result(domain, task_id, ctx)
 
     # PRE_PROMPT_BUILD --------------------------------------------------
-    disp.emit(Mount.PRE_PROMPT_BUILD.value, ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
+    disp.emit("pre_prompt_build", ctx)
     if ctx.blocked:
         return _blocked_result(domain, task_id, ctx)
     # Tier-1 pre_context_build alias for cross-sibling consistency.
@@ -439,10 +437,10 @@ async def run_task(
     runs = result.get("runs") or []
     if runs:
         ctx.final_output = (runs[0].get("final_response") or "")[:8000]
-    disp.emit(Mount.PRE_FINAL_EMIT.value, ctx, sync_mount=Mount.PRE_FINAL_EMIT)
-    # Mount.SESSION_END dispatches via mount.value = "session_end" which is
+    disp.emit("pre_final_emit", ctx)
+    # "session_end" dispatches via mount.value = "session_end" which is
     # the same string as the Tier-1 event, so only one emit is needed.
-    disp.emit(Mount.SESSION_END.value, ctx, sync_mount=Mount.SESSION_END)
+    disp.emit("session_end", ctx)
 
     # Surface any component side-channel state into the result for downstream
     # inspection (does not affect verifier outcome).

@@ -92,7 +92,6 @@ from agent_toolathlon.component_runtime.types import (
     Component as CrComponent,
     ComponentContext as CrCtx,
     DecisionKind as CrDecisionKind,
-    Mount as CrMount,
 )
 
 local_tool_mappings = {
@@ -228,7 +227,7 @@ class TaskAgent:
         if self._cr_dispatcher is None:
             return user_query
         ctx = self._cr_dispatcher.make_tier1_ctx(
-            "user_prompt_submit", CrMount.USER_PROMPT_SUBMIT,
+            "user_prompt_submit",
             self.shared_context,
             incoming_message={"role": "user", "content": user_query},
         )
@@ -544,15 +543,14 @@ class TaskAgent:
         # (via _apply_decision) so subsequent subscribers see them.
         # Existing PRE_CONTEXT_BUILD / SESSION_START components fire via
         # the listens=mount.value alias, so no double-firing.
-        from .types import Mount as _CrMount  # local import to avoid coupling
         base_instructions = self.task_config.system_prompts.agent
         agent_instructions = base_instructions
         injected_parts: list[str] = []
         if self._cr_dispatcher is not None:
             for event_name, _mount in (
-                ("pre_context_build", _CrMount.PRE_CONTEXT_BUILD),
-                ("session_start",     _CrMount.SESSION_START),
-                ("pre_agent_construct", _CrMount.SESSION_START),
+                ("pre_context_build"),
+                ("session_start"),
+                ("pre_agent_construct"),
             ):
                 ctx = self._cr_dispatcher.make_tier1_ctx(
                     event_name, _mount,
@@ -674,9 +672,8 @@ class TaskAgent:
         # interaction loop. Components subscribed here see the freshly
         # constructed agent but have not yet seen the first user turn.
         if self._cr_dispatcher is not None:
-            from .types import Mount as _CrMount
             _tr_ctx = self._cr_dispatcher.make_tier1_ctx(
-                "task_received", _CrMount.SESSION_START,
+                "task_received",
                 self.shared_context,
             )
             self._cr_dispatcher.emit("task_received", _tr_ctx)
@@ -926,7 +923,6 @@ class TaskAgent:
                 # final assistant response shape (the SDK Runner has already
                 # consumed the per-turn hooks; this is the post-Runner anchor).
                 if self._cr_dispatcher is not None:
-                    from .types import Mount as _CrMount
                     _final_text = (result.final_output or "").strip()
                     _last_finish = ""
                     if result.raw_responses:
@@ -934,7 +930,7 @@ class TaskAgent:
                             getattr(result.raw_responses[-1], "finish_reason", "") or ""
                         )
                     _plr_ctx = self._cr_dispatcher.make_tier1_ctx(
-                        "post_llm_response_raw", _CrMount.POST_TOOL_USE,
+                        "post_llm_response_raw",
                         self.shared_context,
                         assistant_message=result.final_output,
                     )
@@ -957,9 +953,8 @@ class TaskAgent:
                     # Tier-1 on_explicit_terminate: an artifact-gate component
                     # may BLOCK the termination (e.g. verify workspace file exists).
                     if self._cr_dispatcher is not None:
-                        from .types import Mount as _CrMount
                         _term_ctx = self._cr_dispatcher.make_tier1_ctx(
-                            "on_explicit_terminate", _CrMount.STOP,
+                            "on_explicit_terminate",
                             self.shared_context,
                             assistant_message=result.final_output,
                         )
@@ -1037,9 +1032,8 @@ class TaskAgent:
         # Tier-1 session_end: terminal bookkeeping. Decisions are ALLOW-only
         # per policy — there is nothing left to rewrite at this point.
         if self._cr_dispatcher is not None:
-            from .types import Mount as _CrMount
             _se_ctx = self._cr_dispatcher.make_tier1_ctx(
-                "session_end", _CrMount.SESSION_END,
+                "session_end",
                 self.shared_context,
             )
             self._cr_dispatcher.emit("session_end", _se_ctx)

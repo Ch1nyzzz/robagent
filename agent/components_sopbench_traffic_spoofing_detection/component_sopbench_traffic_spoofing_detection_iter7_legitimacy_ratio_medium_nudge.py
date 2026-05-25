@@ -142,7 +142,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -335,7 +334,7 @@ def _payload_equals(payload: str, action: str) -> bool:
 
 
 def _matches(ctx: ComponentContext) -> bool:
-    if ctx.mount is not Mount.PRE_FINAL_EMIT:
+    if ctx.event != "pre_final_emit":
         return False
     sop = ctx.sop_text or ""
     threshold = _parse_legitimacy_threshold(sop)
@@ -369,7 +368,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_legitimacy_ratio_medium_nudge",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.PRE_FINAL_EMIT,
+    listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

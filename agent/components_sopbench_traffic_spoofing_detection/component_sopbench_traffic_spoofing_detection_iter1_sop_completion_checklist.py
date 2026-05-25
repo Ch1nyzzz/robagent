@@ -28,7 +28,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -65,7 +64,7 @@ def _extract_output_tag(sop: str) -> str:
 
 
 def _matches(ctx: ComponentContext) -> bool:
-    if ctx.mount is not Mount.SESSION_START:
+    if ctx.event != "session_start":
         return False
     sop = ctx.sop_text or ""
     return bool(_extract_subsections(sop)) and bool(_extract_output_tag(sop))
@@ -107,7 +106,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_sop_completion_checklist",
     cls=ComponentClass.CHANNEL,
-    mount=Mount.SESSION_START,
+    listens="session_start",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

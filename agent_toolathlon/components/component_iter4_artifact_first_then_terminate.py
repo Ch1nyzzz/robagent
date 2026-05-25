@@ -7,7 +7,6 @@ from agent_toolathlon.component_runtime.types import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -61,7 +60,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="component_iter4_artifact_first_then_terminate",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.PRE_CONTEXT_BUILD,
+    listens="pre_context_build",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

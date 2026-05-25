@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from agent.component_runtime.types import (
     Capability, Component, ComponentClass, ComponentContext,
-    Decision, Mount, StateScope, Trust,
+    Decision, StateScope, Trust,
 )
 
 
@@ -72,13 +72,12 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="component_demo_on_empty_response",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.POST_LLM_RESPONSE,
+    listens="on_empty_response",          # Tier-1 event subscription
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,
     capabilities=(Capability.LLM_CALL,),
     priority=200,                          # fire AFTER length_recovery_guard
-    listens="on_empty_response",          # Tier-1 event subscription
     emits=("on_empty_response_recovered",),  # downstream observers may listen
     trust=Trust(
         evidence_anchor=(

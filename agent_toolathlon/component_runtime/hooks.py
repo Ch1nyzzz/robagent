@@ -51,7 +51,6 @@ from .types import (
     ComponentContext,
     Decision,
     DecisionKind,
-    Mount,
 )
 
 
@@ -248,10 +247,9 @@ class ComponentDispatcher:
             trace_sink=_trace_event,
         )
 
-    def _ctx(self, event_name: str, mount: Mount, shared: dict,
+    def _ctx(self, event_name: str, shared: dict,
               **extra: Any) -> ComponentContext:
         ctx = ComponentContext(
-            mount=mount,
             domain_policy=self._domain_policy,
             tool_names=self._tool_names,
             history=list(shared.get("_logs_snapshot", []) or []),
@@ -266,12 +264,11 @@ class ComponentDispatcher:
 
     # ---- Event surface --------------------------------------------------
 
-    def make_tier1_ctx(self, event_name: str, mount: Mount,
-                       shared: dict, **extra: Any) -> ComponentContext:
+    def make_tier1_ctx(self, event_name: str, shared: dict, **extra: Any) -> ComponentContext:
         """Build a ComponentContext with capability hooks wired. Kept
         under the `make_tier1_ctx` name for backward-compat with callers;
         internally delegates to `_ctx` which now does the wiring."""
-        return self._ctx(event_name, mount, shared, **extra)
+        return self._ctx(event_name, shared, **extra)
 
     def emit(self, event_name: str, ctx: ComponentContext) -> None:
         """Fire an event through the unified core dispatcher. The 5
@@ -306,7 +303,7 @@ class ComponentDispatcher:
         BLOCK short-circuits via `_apply_decision` returning stop=True.
         """
         ctx = self._ctx(
-            "pre_tool_use", Mount.PRE_TOOL_USE, shared,
+            "pre_tool_use", "pre_tool_use", shared,
             tool_call={"name": tool_name, "arguments": dict(args)},
         )
         ctx.shared.pop("_toolathlon_args_rewritten", None)
@@ -337,7 +334,7 @@ class ComponentDispatcher:
         return a single concatenated Decision for the wrapper.
         """
         ctx = self._ctx(
-            "post_tool_use", Mount.POST_TOOL_USE, shared,
+            "post_tool_use", "post_tool_use", shared,
             incoming_message={
                 "tool_name": tool_name,
                 "args": dict(args),

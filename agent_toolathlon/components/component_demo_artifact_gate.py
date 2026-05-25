@@ -37,7 +37,7 @@ from typing import Iterable
 
 from agent_toolathlon.component_runtime.types import (
     Capability, Component, ComponentClass, ComponentContext,
-    Decision, Mount, StateScope, Trust,
+    Decision, StateScope, Trust,
 )
 
 
@@ -100,13 +100,12 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="component_demo_artifact_gate",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.STOP,
+    listens="on_explicit_terminate",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,
     capabilities=(Capability.READ_FILE,),
     priority=100,
-    listens="on_explicit_terminate",
     emits=(),
     trust=Trust(
         evidence_anchor=(

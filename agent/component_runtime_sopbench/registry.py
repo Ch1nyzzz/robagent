@@ -2,13 +2,7 @@
 
 Each Component lives in `agent/components_sopbench_<domain>/<name>.py`
 (per-domain dirs) and exports `COMPONENT: Component`. Later files with
-the same `COMPONENT.name` replace earlier ones (file-level replace_node),
-mirroring GAIA / tau2 / enterpriseops registries.
-
-Refactored in Phase A of the event-runtime migration to delegate the
-file-loading bit to `meta_harness.component_runtime_core.registry`.
-Per-sibling behaviour (Mount groupby, ALLOWED policy validation) stays
-here.
+the same `COMPONENT.name` replace earlier ones (file-level replace_node).
 """
 from __future__ import annotations
 
@@ -18,16 +12,14 @@ from typing import Iterable
 from meta_harness.component_runtime_core.registry import load_module_from_path
 
 from .policy import validate_registration, validate_trust
-from .types import Component, Mount
+from .types import Component
 
 
-# Default directory used purely so bare imports don't error; in practice
-# callers always pass a per-domain `comp_dir` explicitly.
 COMPONENTS_DIR_DEFAULT = Path(__file__).resolve().parent.parent / "components_sopbench"
 _PKG_PREFIX = "agent.components_sopbench"
 
 
-def load_components(component_files: Iterable[str | Path]) -> dict[Mount, list[Component]]:
+def load_components(component_files: Iterable[str | Path]) -> list[Component]:
     by_name: dict[str, Component] = {}
     for raw in component_files:
         path = Path(raw).resolve()
@@ -37,33 +29,24 @@ def load_components(component_files: Iterable[str | Path]) -> dict[Mount, list[C
         if not hasattr(mod, "COMPONENT"):
             raise AttributeError(f"component module {path} must export `COMPONENT`")
         comp: Component = mod.COMPONENT
-        validate_registration(comp.cls, comp.mount)
+        validate_registration(comp.cls, comp.listens)
         validate_trust(comp.cls, comp.trust)
         by_name[comp.name] = comp
-
-    grouped: dict[Mount, list[Component]] = {m: [] for m in Mount}
-    for comp in by_name.values():
-        grouped[comp.mount].append(comp)
-    for mount, comps in grouped.items():
-        comps.sort(key=lambda c: c.priority)
-    return grouped
+    return sorted(by_name.values(), key=lambda c: c.priority)
 
 
 def load_components_from_dir(directory: str | Path = COMPONENTS_DIR_DEFAULT,
                              only: Iterable[str] | None = None
-                             ) -> dict[Mount, list[Component]]:
+                             ) -> list[Component]:
     directory = Path(directory)
     if not directory.exists():
-        return {m: [] for m in Mount}
+        return []
     files = sorted(p for p in directory.glob("*.py")
                    if not p.name.startswith("_"))
     if not files:
-        return {m: [] for m in Mount}
-    grouped = load_components(files)
+        return []
+    all_comps = load_components(files)
     if only is None:
-        return grouped
+        return all_comps
     only_set = set(only)
-    return {
-        mount: [c for c in comps if c.name in only_set]
-        for mount, comps in grouped.items()
-    }
+    return [c for c in all_comps if c.name in only_set]

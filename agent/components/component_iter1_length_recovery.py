@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from agent.component_runtime.types import (
     Capability, Component, ComponentClass, ComponentContext,
-    Decision, Mount, StateScope, Trust,
+    Decision, StateScope, Trust,
 )
 from agent.llm import chat
 
@@ -46,7 +46,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="length_recovery_guard",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.POST_LLM_RESPONSE,
+    listens="post_llm_response",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

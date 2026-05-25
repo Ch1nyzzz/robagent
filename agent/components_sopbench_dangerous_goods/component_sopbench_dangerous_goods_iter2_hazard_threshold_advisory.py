@@ -36,7 +36,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -79,7 +78,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_dangerous_goods_hazard_threshold_advisory",
     cls=ComponentClass.INDUCED_RULE,
-    mount=Mount.PRE_PROMPT_BUILD,
+    listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,

@@ -19,14 +19,12 @@ from typing import Iterable
 from meta_harness.component_runtime_core.registry import load_module_from_path
 
 from .policy import validate_registration, validate_trust
-from .types import Component, Mount
-
-
+from .types import Component
 COMPONENTS_DIR_DEFAULT = Path(__file__).resolve().parent.parent / "components"
 _PKG_PREFIX = "agent_tau2.components"
 
 
-def load_components(component_files: Iterable[str | Path]) -> dict[Mount, list[Component]]:
+def load_components(component_files: Iterable[str | Path]) -> list[Component]:
     """Load a set of component files. Later files with the same COMPONENT.name
     replace earlier ones (the modify-by-reuse-name convention — this is how
     `replace_node` is realised at the filesystem layer)."""
@@ -39,35 +37,27 @@ def load_components(component_files: Iterable[str | Path]) -> dict[Mount, list[C
         if not hasattr(mod, "COMPONENT"):
             raise AttributeError(f"component module {path} must export `COMPONENT`")
         comp: Component = mod.COMPONENT
-        validate_registration(comp.cls, comp.mount)
+        validate_registration(comp.cls, comp.listens)
         validate_trust(comp.cls, comp.trust)
         by_name[comp.name] = comp
 
-    grouped: dict[Mount, list[Component]] = {m: [] for m in Mount}
-    for comp in by_name.values():
-        grouped[comp.mount].append(comp)
-    # Stable per-mount ordering: (priority ASC, insertion ASC).
-    # Insertion order is the dict iteration order of `by_name`, which Python
-    # 3.7+ guarantees. Sorting on priority alone preserves that for ties.
-    for mount, comps in grouped.items():
-        comps.sort(key=lambda c: c.priority)
-    return grouped
+    # Stable ordering: (priority ASC, insertion ASC). Insertion order
+    # is the dict iteration order of `by_name`, which Python 3.7+
+    # guarantees. Sorting on priority alone preserves that for ties.
+    return sorted(by_name.values(), key=lambda c: c.priority)
 
 
 def load_components_from_dir(directory: str | Path = COMPONENTS_DIR_DEFAULT,
                              only: Iterable[str] | None = None
-                             ) -> dict[Mount, list[Component]]:
+                             ) -> list[Component]:
     """Load every `*.py` under directory (excluding dunder files). If `only`
     is given, restrict to component NAMES in that set (the per-iteration
     filter applied by meta_harness_components.py)."""
     directory = Path(directory)
     files = sorted(p for p in directory.glob("*.py")
                    if not p.name.startswith("_"))
-    grouped = load_components(files)
+    all_comps = load_components(files)
     if only is None:
-        return grouped
+        return all_comps
     only_set = set(only)
-    return {
-        mount: [c for c in comps if c.name in only_set]
-        for mount, comps in grouped.items()
-    }
+    return [c for c in all_comps if c.name in only_set]

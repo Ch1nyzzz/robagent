@@ -106,7 +106,6 @@ from agent.component_runtime_sopbench import (
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
     StateScope,
     Trust,
 )
@@ -300,7 +299,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="sopbench_warehouse_package_inspection_input_evidence_status_check",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.PRE_FINAL_EMIT,
+    listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
     state_scope=StateScope.NONE,
