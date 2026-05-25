@@ -40,6 +40,8 @@ from meta_harness.component_runtime_core.shared_types import (
     StateScope,
     Trust,
 )
+# Phase C: ComponentContext inherits EventContext for capability methods.
+from meta_harness.component_runtime_core.event_context import EventContext
 
 
 # --- enums -------------------------------------------------------------------
@@ -122,14 +124,20 @@ class Decision:
 # --- context -----------------------------------------------------------------
 
 
-@dataclass
-class ComponentContext:
+@dataclass(kw_only=True)
+class ComponentContext(EventContext):
     """The argument passed to every Component matcher / handler.
 
     A single ComponentContext is reused across all Components firing at
-    the same mount, so handlers may *read* `shared` but should not mutate
-    the runtime-owned fields (`tool_call`, `incoming_message`,
+    the same mount/event, so handlers may *read* `shared` but should not
+    mutate the runtime-owned fields (`tool_call`, `incoming_message`,
     `assistant_message`, `history`).
+
+    Inherits from EventContext (Phase C): `event`, `task_id`, `shared`,
+    `state`, `persistent_state`, `upstream`, `blocked`, `blocked_reason`,
+    plus the `ctx.chat` / `ctx.emit` / `ctx.emit_upstream` capability
+    methods. `@dataclass(kw_only=True)` is required because EventContext
+    has default fields.
 
     `state` is keyed by Component.name; the dispatcher populates it from
     the agent's `_session_state` (for SESSION scope) or the disk-backed
@@ -145,8 +153,6 @@ class ComponentContext:
     domain_policy: str = ""
     tool_names: tuple[str, ...] = ()
     history: list = field(default_factory=list)  # state.messages snapshot
-    shared: dict = field(default_factory=dict)   # cross-component scratchpad
-    state: dict = field(default_factory=dict)    # per-component name → state dict
 
     # Sugar for the common PRE_TOOL_USE matcher pattern.
     @property
