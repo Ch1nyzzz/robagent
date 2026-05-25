@@ -1,0 +1,160 @@
+{
+  "per_task": {
+    "0": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<hazard_score>0</hazard_score>\n<hazard_class>unable to decide</hazard_class>"
+    },
+    "1": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "2": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class a"
+    },
+    "3": {
+      "agent": "mh_iter2_hazard_threshold_advisory",
+      "score": 1.0,
+      "predicted": "<hazard_score>16</hazard_score>\n<hazard_class>hazard class c</hazard_class>"
+    },
+    "4": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "5": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class b"
+    },
+    "6": {
+      "agent": "mh_iter1_final_xml_recovery",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "7": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "8": {
+      "agent": "mh_iter1_final_xml_recovery",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "9": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "10": {
+      "agent": "mh_iter1_final_xml_recovery",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "11": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "12": {
+      "agent": "mh_iter2_hazard_threshold_advisory",
+      "score": 1.0,
+      "predicted": "<hazard_score>16</hazard_score>\n<hazard_class>hazard class c</hazard_class>"
+    },
+    "13": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "14": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "15": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class a"
+    },
+    "16": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class a"
+    },
+    "17": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "18": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "19": {
+      "agent": "mh_iter2_hazard_threshold_advisory",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "20": {
+      "agent": "mh_iter2_hazard_threshold_advisory",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "21": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "22": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "23": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class a"
+    },
+    "24": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "25": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "26": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "hazard class d"
+    },
+    "27": {
+      "agent": "mh_iter1_final_xml_recovery",
+      "score": 1.0,
+      "predicted": "unable to decide"
+    },
+    "28": {
+      "agent": "mh_iter2_hazard_threshold_advisory",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    },
+    "29": {
+      "agent": "mh_iter2_hazard_threshold_advisory",
+      "score": 1.0,
+      "predicted": "hazard class c"
+    }
+  },
+  "frontier_score": {
+    "correct": 30,
+    "total": 30,
+    "acc": 1.0
+  },
+  "updated_at": "2026-05-24T05:05:13.096793+00:00"
+}

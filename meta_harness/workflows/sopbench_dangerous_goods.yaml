@@ -1,0 +1,5 @@
+nodes:
+  - sopbench_dangerous_goods_final_xml_recovery
+  - sopbench_dangerous_goods_hazard_threshold_advisory
+edges: []
+disabled: []

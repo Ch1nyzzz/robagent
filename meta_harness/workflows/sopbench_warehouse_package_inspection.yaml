@@ -1,0 +1,9 @@
+nodes:
+  - sopbench_warehouse_package_inspection_resolution_status_output_spec
+  - sopbench_warehouse_package_inspection_update_status_pending_init
+  - sopbench_warehouse_package_inspection_final_status_normalizer
+  - sopbench_warehouse_package_inspection_input_evidence_status_check
+  - sopbench_warehouse_package_inspection_clean_path_resolved_terminal
+  - sopbench_warehouse_package_inspection_barcode_image_decode_override
+edges: []
+disabled: []

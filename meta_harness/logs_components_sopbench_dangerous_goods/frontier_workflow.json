@@ -1,0 +1,9 @@
+{
+  "workflow_yaml_at_accept": "nodes:\n  - sopbench_dangerous_goods_final_xml_recovery\n  - sopbench_dangerous_goods_hazard_threshold_advisory\nedges: []\ndisabled: []\n",
+  "active_names": [
+    "sopbench_dangerous_goods_final_xml_recovery",
+    "sopbench_dangerous_goods_hazard_threshold_advisory"
+  ],
+  "accepted_at_iteration": 2,
+  "accepted_at": "2026-05-24T04:52:22.600512+00:00"
+}

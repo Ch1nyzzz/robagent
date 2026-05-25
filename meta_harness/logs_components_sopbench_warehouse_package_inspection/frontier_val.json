@@ -1,0 +1,160 @@
+{
+  "per_task": {
+    "0": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "<po_number>po987654435</po_number>\n  <vendor_id>v10293961</vendor_id>\n  <vendor_name>quality electronics</vendor_name>\n  <report_id>rpt-2de7fc31</report_id>\n  <problem_type>wrong item</problem_type>\n  <resolution_status>returned to vendor</resolution_status>\n  <chargeback_amount>0.00</chargeback_amount>\n  <chargeable>false</chargeable>\n  <requires_return>true</requires_return>\n  <next_steps>\n    <step>initiate immediate return to vendor</step>\n    <step>await vendor acknowledgment</step>\n  </next_steps>"
+    },
+    "1": {
+      "agent": "mh_iter10_iter5_respect_sop_511_short_circuit",
+      "score": 1.0,
+      "predicted": "returned to vendor"
+    },
+    "2": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "<report_id>rpt-2e68ea58</report_id>\n  <po_number>po987654326</po_number>\n  <vendor_id>v10293852</vendor_id>\n  <vendor_name>quality vendors</vendor_name>\n  <barcode_validation>\n    <match>true</match>\n    <problem_type>none</problem_type>\n  </barcode_validation>\n  <quantity_assessment>\n    <ordered_quantity>1000</ordered_quantity>\n    <confirmed_quantity>1000</confirmed_quantity>\n    <received_quantity>1000</received_quantity>\n    <variance_percent>0.0</variance_percent>\n    <problem_type>none</problem_type>\n  </quantity_assessment>\n  <location_verification>\n    <intended_warehouse>fc-lax1</intended_warehouse>\n    <actual_warehouse>fc-lax1</actual_warehouse>\n    <match>true</match>\n    <problem_type>none</problem_type>\n  </location_verification>\n  <condition_assessment>\n    <package_condition>intact</package_condition>\n    <problem_type>none</problem_type>\n  </condition_assessment>\n  <problem_summary>\n    <total_problems>0</total_problems>\n    <primary_issue>none</primary_issue>\n  </problem_summary>\n  <chargeback_details>\n    <chargeable>false</chargeable>\n    <charge_amount>0.00</charge_amount>\n  </chargeback_details>\n  <resolution_status>pending</resolution_status>"
+    },
+    "3": {
+      "agent": "mh_iter5_input_evidence_status_check",
+      "score": 1.0,
+      "predicted": "processing"
+    },
+    "4": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "<report_id>rpt-06b372db</report_id>\n  <po_number>po987654438</po_number>\n  <vendor_id>v10293964</vendor_id>\n  <vendor_name>elite electronics</vendor_name>\n  <problem_type>vendor damaged</problem_type>\n  <chargeback_amount>545.88</chargeback_amount>\n  <resolution_status>processing</resolution_status>"
+    },
+    "5": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654394</po_number>\n  <vendor_id>v10293920</vendor_id>\n  <vendor_name>premium electronics</vendor_name>\n  <problem_classification>\n    <problem_type>[\"cancelled quantity\"]</problem_type>\n    <primary_issue>cancelled quantity</primary_issue>\n    <total_problems>1</total_problems>\n  </problem_classification>\n  <chargeback_calculation>\n    <chargeable>true</chargeable>\n    <charge_amount>2749.75</charge_amount>\n    <charge_date>2026-05-23</charge_date>\n    <charge_reason>cancelled quantity</charge_reason>\n  </chargeback_calculation>\n  <resolution_status>\n    <current_status>processing</current_status>\n    <status_date>2026-05-23</status_date>\n    <requires_return>false</requires_return>\n    <next_steps>[\"reconcile quantity discrepancy\"]</next_steps>\n  </resolution_status>"
+    },
+    "6": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654461</po_number>\n  <vendor_id>v10293987</vendor_id>\n  <vendor_name>direct electronics</vendor_name>\n  <problem_type>wrong item</problem_type>\n  <resolution_status>returned to vendor</resolution_status>\n  <report_id>rpt-88504ff3</report_id>"
+    },
+    "7": {
+      "agent": "mh_iter5_input_evidence_status_check",
+      "score": 1.0,
+      "predicted": "processing"
+    },
+    "8": {
+      "agent": "mh_iter5_input_evidence_status_check",
+      "score": 1.0,
+      "predicted": "processing"
+    },
+    "9": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654417</po_number>\n  <vendor_id>v10293943</vendor_id>\n  <vendor_name>rapid electronics</vendor_name>\n  <problem_type>wrong item</problem_type>\n  <resolution_status>returned to vendor</resolution_status>\n  <chargeback_amount>0.00</chargeback_amount>"
+    },
+    "10": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654490</po_number>\n  <vendor_id>v10294016</vendor_id>\n  <vendor_name>premium electronics</vendor_name>\n  <product_name>wireless mouse supreme</product_name>\n  <confirmed_product_id>4006724670013</confirmed_product_id>\n  <barcode_validation>\n    <match>true</match>\n    <problem>none</problem>\n  </barcode_validation>\n  <quantity_analysis>\n    <ordered_quantity>975</ordered_quantity>\n    <confirmed_quantity>975</confirmed_quantity>\n    <received_quantity>1025</received_quantity>\n    <variance_percent>5.13</variance_percent>\n    <qvt_threshold>5.0</qvt_threshold>\n    <problems>\n      <problem>overage quantity</problem>\n      <problem>severe unmatched quantity</problem>\n    </problems>\n  </quantity_analysis>\n  <warehouse_verification>\n    <intended_warehouse_id>fc-bos19</intended_warehouse_id>\n    <actual_warehouse_id>fc-bos19</actual_warehouse_id>\n    <match>true</match>\n    <problem>none</problem>\n  </warehouse_verification>\n  <condition_assessment>\n    <package_condition>intact</package_condition>\n    <problem>none</problem>\n  </condition_assessment>\n  <chargeback_details>\n    <chargeable>false</chargeable>\n    <charge_amount>0.00</charge_amount>\n  </chargeback_details>\n  <resolution_status>processing</resolution_status>\n  <report_id>rpt-b7c72763</report_id>\n  <primary_issue>overage quantity</primary_issue>\n  <next_steps>\n    <step>reconcile quantity discrepancy</step>\n  </next_steps>"
+    },
+    "11": {
+      "agent": "mh_iter1_resolution_status_output_spec",
+      "score": 1.0,
+      "predicted": "resolved"
+    },
+    "12": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654352</po_number>\n  <vendor_id>v10293878</vendor_id>\n  <vendor_name>smart electronics</vendor_name>\n  <report_id>rpt-45730da3</report_id>\n  <barcode_validation>\n    <barcode_match>true</barcode_match>\n  </barcode_validation>\n  <quantity_assessment>\n    <ordered_quantity>1100</ordered_quantity>\n    <confirmed_quantity>1100</confirmed_quantity>\n    <received_quantity>1100</received_quantity>\n    <quantity_variance>0.0%</quantity_variance>\n    <quantity_issues>none</quantity_issues>\n  </quantity_assessment>\n  <location_verification>\n    <intended_warehouse>fc-nyc4</intended_warehouse>\n    <actual_warehouse>fc-jfk1</actual_warehouse>\n    <location_match>false</location_match>\n    <problem>wrong warehouse</problem>\n  </location_verification>\n  <condition_assessment>\n    <package_condition>intact</package_condition>\n    <damage_detected>false</damage_detected>\n  </condition_assessment>\n  <problem_summary>\n    <total_problems>1</total_problems>\n    <problems>\n      <problem>wrong warehouse</problem>\n    </problems>\n    <primary_issue>wrong warehouse</primary_issue>\n  </problem_summary>\n  <chargeback_details>\n    <chargeable>true</chargeable>\n    <charge_amount>1537.64</charge_amount>\n    <charge_reason>wrong warehouse</charge_reason>\n  </chargeback_details>\n  <resolution_status>processing</resolution_status>"
+    },
+    "13": {
+      "agent": "mh_iter9_barcode_image_decode_override",
+      "score": 1.0,
+      "predicted": "processing"
+    },
+    "14": {
+      "agent": "mh_iter10_iter5_respect_sop_511_short_circuit",
+      "score": 1.0,
+      "predicted": "returned to vendor"
+    },
+    "15": {
+      "agent": "mh_iter10_iter5_respect_sop_511_short_circuit",
+      "score": 1.0,
+      "predicted": "returned to vendor"
+    },
+    "16": {
+      "agent": "mh_iter5_input_evidence_status_check",
+      "score": 1.0,
+      "predicted": "processing"
+    },
+    "17": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654510</po_number>\n  <vendor_id>v10294036</vendor_id>\n  <vendor_name>elite electronics</vendor_name>\n  <report_id>rpt-9f927ad7</report_id>\n  <problem_summary>\n    <total_problems>2</total_problems>\n    <problems>\n      <problem>wrong warehouse</problem>\n      <problem>vendor damaged</problem>\n    </problems>\n    <primary_issue>wrong warehouse</primary_issue>\n  </problem_summary>\n  <chargeback_details>\n    <chargeable>true</chargeable>\n    <charge_amount>1008.19</charge_amount>\n    <charge_date>2026-05-23</charge_date>\n    <charge_reason>wrong warehouse</charge_reason>\n  </chargeback_details>\n  <resolution_details>\n    <current_status>processing</current_status>\n    <status_date>2026-05-23</status_date>\n    <requires_return>false</requires_return>\n    <next_steps>\n      <step>document damage with photos</step>\n    </next_steps>\n  </resolution_details>"
+    },
+    "18": {
+      "agent": "mh_iter5_input_evidence_status_check",
+      "score": 1.0,
+      "predicted": "processing"
+    },
+    "19": {
+      "agent": "mh_iter9_barcode_image_decode_override",
+      "score": 1.0,
+      "predicted": "resolved"
+    },
+    "20": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654372</po_number>\n  <vendor_id>v10293898</vendor_id>\n  <vendor_name>express tech</vendor_name>\n  <problem_classification_report>\n    <barcode_validation>\n      <match>true</match>\n      <problem_type>none</problem_type>\n    </barcode_validation>\n    <quantity_assessment>\n      <ordered_quantity>850</ordered_quantity>\n      <confirmed_quantity>850</confirmed_quantity>\n      <received_quantity>900</received_quantity>\n      <variance_percentage>5.88</variance_percentage>\n      <qvt_threshold>5.0</qvt_threshold>\n      <problems>\n        <problem>overage quantity</problem>\n        <problem>severe unmatched quantity</problem>\n      </problems>\n    </quantity_assessment>\n    <location_verification>\n      <intended_warehouse_id>fc-hou6</intended_warehouse_id>\n      <actual_warehouse_id>fc-hou6</actual_warehouse_id>\n      <match>true</match>\n      <problem_type>none</problem_type>\n    </location_verification>\n    <condition_assessment>\n      <package_condition>damaged</package_condition>\n      <problems>\n        <problem>vendor damaged</problem>\n      </problems>\n    </condition_assessment>\n    <total_problems>\n      <problem>overage quantity</problem>\n      <problem>severe unmatched quantity</problem>\n      <problem>vendor damaged</problem>\n    </total_problems>\n  </problem_classification_report>\n  <chargeback_calculation_sheet>\n    <chargeable>true</chargeable>\n    <charge_amount>15676.3</charge_amount>\n    <charge_date>2026-05-23</charge_date>\n    <charge_reason>overage quantity</charge_reason>\n  </chargeback_calculation_sheet>\n  <resolution_status_update>\n    <current_status>processing</current_status>\n    <updated_at>2026-05-23t20:32:49.189066</updated_at>\n    <requires_return>false</requires_return>\n    <next_steps>\n      <step>document damage with photos</step>\n      <step>reconcile quantity discrepancy</step>\n    </next_steps>\n  </resolution_status_update>"
+    },
+    "21": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654448</po_number>\n  <vendor_id>v10293974</vendor_id>\n  <vendor_name>smart electronics</vendor_name>\n  <report_id>rpt-776aa9ad</report_id>\n  <problem_summary>\n    <total_problems>1</total_problems>\n    <primary_issue>cancelled quantity</primary_issue>\n    <problems_breakdown>\n      <problem type=\"cancelled quantity\" count=\"1\"/>\n    </problems_breakdown>\n  </problem_summary>\n  <chargeback_details>\n    <chargeable>true</chargeable>\n    <charge_amount>8941.05</charge_amount>\n    <charge_date>2026-05-23</charge_date>\n    <charge_reason>cancelled quantity</charge_reason>\n  </chargeback_details>\n  <resolution_details>\n    <current_status>processing</current_status>\n    <status_date>2026-05-23</status_date>\n    <requires_return>false</requires_return>\n    <next_steps>\n      <step>reconcile quantity discrepancy</step>\n    </next_steps>\n  </resolution_details>"
+    },
+    "22": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654483</po_number>\n  <vendor_id>v10294009</vendor_id>\n  <vendor_name>quality tech</vendor_name>\n  <problem_type>wrong item</problem_type>\n  <resolution_status>returned to vendor</resolution_status>\n  <chargeback_amount>0.00</chargeback_amount>\n  <report_id>rpt-351857ad</report_id>"
+    },
+    "23": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "<po_number>po987654362</po_number>\n  <vendor_id>v10293888</vendor_id>\n  <vendor_name>fast tech</vendor_name>\n  <barcode_validation>\n    <match>true</match>\n    <problem_type></problem_type>\n  </barcode_validation>\n  <quantity_assessment>\n    <ordered_quantity>650</ordered_quantity>\n    <confirmed_quantity>650</confirmed_quantity>\n    <received_quantity>600</received_quantity>\n    <variance_percent>-7.69</variance_percent>\n    <problem_type>underage quantity, severe unmatched quantity</problem_type>\n  </quantity_assessment>\n  <location_verification>\n    <match>true</match>\n    <problem_type></problem_type>\n  </location_verification>\n  <condition_assessment>\n    <condition>intact</condition>\n    <problem_type></problem_type>\n  </condition_assessment>\n  <problem_summary>\n    <total_problems>2</total_problems>\n    <problems>underage quantity, severe unmatched quantity</problems>\n    <primary_issue>underage quantity</primary_issue>\n  </problem_summary>\n  <chargeback_details>\n    <chargeable>false</chargeable>\n    <charge_amount>0.00</charge_amount>\n  </chargeback_details>\n  <resolution_status>processing</resolution_status>\n  <report_id>rpt-93fe68c3</report_id>"
+    },
+    "24": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654439</po_number>\n  <vendor_id>v10293965</vendor_id>\n  <vendor_name>best tech</vendor_name>\n  <problem_type>wrong item</problem_type>\n  <resolution_status>returned to vendor</resolution_status>\n  <chargeback_amount>0.00</chargeback_amount>"
+    },
+    "25": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654434</po_number>\n    <vendor_id>v10293960</vendor_id>\n    <vendor_name>fast tech</vendor_name>\n    <product_name>usb hub elite</product_name>\n    <confirmed_product_id>4005500333005</confirmed_product_id>\n    <barcode_validation>\n        <match>true</match>\n        <problem_type></problem_type>\n    </barcode_validation>\n    <quantity_assessment>\n        <ordered_quantity>925</ordered_quantity>\n        <confirmed_quantity>925</confirmed_quantity>\n        <received_quantity>975</received_quantity>\n        <variance_percentage>5.41</variance_percentage>\n        <qvt_threshold>5.0</qvt_threshold>\n        <problem_types>\n            <problem>overage quantity</problem>\n            <problem>severe unmatched quantity</problem>\n        </problem_types>\n    </quantity_assessment>\n    <location_verification>\n        <intended_warehouse_id>fc-lax13</intended_warehouse_id>\n        <actual_warehouse_id>fc-lax13</actual_warehouse_id>\n        <match>true</match>\n        <problem_type></problem_type>\n    </location_verification>\n    <condition_assessment>\n        <package_condition>intact</package_condition>\n        <problem_type></problem_type>\n    </condition_assessment>\n    <chargeback_calculation>\n        <chargeable>false</chargeable>\n        <charge_amount>0.00</charge_amount>\n    </chargeback_calculation>\n    <resolution_status>processing</resolution_status>\n    <report_id>rpt-751e11d8</report_id>"
+    },
+    "26": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654347</po_number>\n  <vendor_id>v10293873</vendor_id>\n  <vendor_name>global tech</vendor_name>\n  <problem_type>wrong item</problem_type>\n  <resolution_status>returned to vendor</resolution_status>\n  <chargeback_amount>0.00</chargeback_amount>"
+    },
+    "27": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<po_number>po987654460</po_number>\n  <vendor_id>v10293986</vendor_id>\n  <vendor_name>smart tech</vendor_name>\n  <problem_type>wrong warehouse</problem_type>\n  <chargeback_amount>52.5</chargeback_amount>\n  <resolution_status>processing</resolution_status>"
+    },
+    "28": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "<report_id>rpt-d7c539d2</report_id>\n  <po_number>po987654421</po_number>\n  <vendor_id>v10293947</vendor_id>\n  <vendor_name>prime tech</vendor_name>\n  <problem_summary>\n    <total_problems>1</total_problems>\n    <primary_issue>wrong item</primary_issue>\n    <problems_breakdown>\n      <problem type=\"wrong item\" count=\"1\"/>\n    </problems_breakdown>\n  </problem_summary>\n  <chargeback_details>\n    <chargeable>true</chargeable>\n    <charge_amount>6124.42</charge_amount>\n    <charge_date>2026-05-23</charge_date>\n    <charge_reason>wrong item</charge_reason>\n  </chargeback_details>\n  <resolution_details>\n    <resolution_status>returned to vendor</resolution_status>\n    <status_date>2026-05-23</status_date>\n    <requires_return>true</requires_return>\n    <next_steps>\n      <step>initiate immediate return to vendor</step>\n    </next_steps>\n  </resolution_details>"
+    },
+    "29": {
+      "agent": "mh_iter10_iter5_respect_sop_511_short_circuit",
+      "score": 1.0,
+      "predicted": "returned to vendor"
+    }
+  },
+  "frontier_score": {
+    "correct": 26,
+    "total": 30,
+    "acc": 0.8667
+  },
+  "updated_at": "2026-05-24T07:30:37.121861+00:00"
+}

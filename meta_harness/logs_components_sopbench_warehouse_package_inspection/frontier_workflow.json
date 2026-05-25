@@ -1,0 +1,13 @@
+{
+  "workflow_yaml_at_accept": "nodes:\n  - sopbench_warehouse_package_inspection_resolution_status_output_spec\n  - sopbench_warehouse_package_inspection_update_status_pending_init\n  - sopbench_warehouse_package_inspection_final_status_normalizer\n  - sopbench_warehouse_package_inspection_input_evidence_status_check\n  - sopbench_warehouse_package_inspection_clean_path_resolved_terminal\n  - sopbench_warehouse_package_inspection_barcode_image_decode_override\nedges: []\ndisabled: []\n",
+  "active_names": [
+    "sopbench_warehouse_package_inspection_resolution_status_output_spec",
+    "sopbench_warehouse_package_inspection_update_status_pending_init",
+    "sopbench_warehouse_package_inspection_final_status_normalizer",
+    "sopbench_warehouse_package_inspection_input_evidence_status_check",
+    "sopbench_warehouse_package_inspection_clean_path_resolved_terminal",
+    "sopbench_warehouse_package_inspection_barcode_image_decode_override"
+  ],
+  "accepted_at_iteration": 10,
+  "accepted_at": "2026-05-24T07:30:37.727630+00:00"
+}

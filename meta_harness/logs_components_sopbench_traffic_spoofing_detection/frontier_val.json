@@ -1,0 +1,160 @@
+{
+  "per_task": {
+    "0": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "temporary suspension"
+    },
+    "1": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "2": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "3": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "temporary suspension"
+    },
+    "4": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "no action"
+    },
+    "5": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "6": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "7": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "temporary suspension"
+    },
+    "8": {
+      "agent": "mh_iter2_final_emit_recovery",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "9": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "10": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "11": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "12": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "13": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "14": {
+      "agent": "mh_iter2_final_emit_recovery",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "15": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "unknown"
+    },
+    "16": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "17": {
+      "agent": "mh_iter2_final_emit_recovery",
+      "score": 1.0,
+      "predicted": "temporary suspension"
+    },
+    "18": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "temporary suspension"
+    },
+    "19": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "temporary suspension"
+    },
+    "20": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "temporary suspension"
+    },
+    "21": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "temporary suspension"
+    },
+    "22": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "23": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "no action"
+    },
+    "24": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "no action"
+    },
+    "25": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "26": {
+      "agent": "v0",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "27": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "temporary suspension"
+    },
+    "28": {
+      "agent": "mh_iter1_sop_completion_checklist",
+      "score": 1.0,
+      "predicted": "account closure"
+    },
+    "29": {
+      "agent": "v0",
+      "score": 0.0,
+      "predicted": "unknown"
+    }
+  },
+  "frontier_score": {
+    "correct": 23,
+    "total": 30,
+    "acc": 0.7667
+  },
+  "updated_at": "2026-05-24T07:40:15.500420+00:00"
+}
