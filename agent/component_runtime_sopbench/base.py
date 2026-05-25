@@ -179,11 +179,13 @@ class Dispatcher:
         state_dir: Optional[Path] = None,
     ) -> None:
         self.workflow = workflow
-        self.components_by_mount = components_by_mount
         self.run_tag = run_tag
         self._state_dir = state_dir
+        # Flatten the mount-bucketed input dict for the core dispatcher;
+        # the dict itself is not retained — components subscribe via
+        # `Component.listens` (auto-set to mount.value by __post_init__).
         flat: list[Component] = []
-        for mount, comps in components_by_mount.items():
+        for _mount, comps in components_by_mount.items():
             flat.extend(comps)
         self._core = _CoreDispatcher(
             flat,

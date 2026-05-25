@@ -93,40 +93,89 @@ def _trace_event(component_name: str, event_name: str,
         pass
 
 
-def _apply_tier1_decision(ctx: ComponentContext, decision: "Decision",
-                          comp: "Component") -> bool:
-    """Decision applier for Tier-1 events in toolathlon.
+def _apply_decision(ctx: ComponentContext, decision: "Decision",
+                    comp: "Component") -> bool:
+    """Unified decision applier for every toolathlon event. Event-aware
+    so the same DecisionKind means the right thing per lifecycle point.
 
-    INJECT_CONTEXT @ pre-LLM events → ctx.shared['tier1_prompt_inject']
-                                       (task_agent reads before next turn)
-    INJECT_CONTEXT @ post-* events  → ctx.shared[_PENDING_KEY] queue
-                                       (already-existing post-tool inject path)
-    BLOCK                           → ctx.blocked + stop=True
-    Other kinds                     → no-op (Tier-1 events don't directly
-                                       rewrite tau2-shaped objects).
+      INJECT_CONTEXT @ setup events       → accumulate into BOTH
+            ctx.proposed_system_prompt (so subsequent subscribers see
+            prior contributions) AND ctx.shared['tier1_prompt_inject']
+            (so the outer setup_agent code can drain the list).
+      INJECT_CONTEXT @ user_prompt_submit → ctx.shared['_toolathlon_user_prompt_inject']
+      INJECT_CONTEXT @ post_tool_use*     → ctx.shared['_toolathlon_post_tool_injections']
+                                            (drained by fire_post_tool_use_inline)
+      INJECT_CONTEXT @ other (legacy)     → ctx.shared[_PENDING_KEY] queue
+      REWRITE_TOOL_ARGS @ pre_tool_use*   → rewrite ctx.tool_call (dict shape)
+                                            and mark _toolathlon_args_rewritten
+      BLOCK @ pre_tool_use*               → mark _toolathlon_block_reason,
+                                            STOP further subscribers; the
+                                            wrapper returns Decision.block()
+      BLOCK @ anything else               → ctx.blocked, terminate.
     """
     event = ctx.event or ""
     kind = decision.kind
     if kind is DecisionKind.ALLOW:
         return False
+
     if kind is DecisionKind.INJECT_CONTEXT:
         text = str(decision.payload or "")
-        if event in ("task_received", "pre_context_build", "pre_agent_construct",
-                     "pre_llm_request"):
+        if event in ("task_received", "pre_context_build", "session_start",
+                     "pre_agent_construct", "pre_llm_request"):
+            if ctx.proposed_system_prompt is not None:
+                ctx.proposed_system_prompt = (
+                    ctx.proposed_system_prompt + "\n\n" + text
+                )
             ctx.shared.setdefault("tier1_prompt_inject", []).append(text)
+        elif event == "user_prompt_submit":
+            ctx.shared.setdefault(
+                "_toolathlon_user_prompt_inject", []
+            ).append(text)
+        elif event in ("post_tool_use", "post_tool_result_raw"):
+            ctx.shared.setdefault(
+                "_toolathlon_post_tool_injections", []
+            ).append(text)
         else:
             ctx.shared.setdefault(_PENDING_KEY, []).append(text)
         return False
+
+    if kind is DecisionKind.REWRITE_TOOL_ARGS:
+        # toolathlon's ctx.tool_call is a dict {"name", "arguments"}.
+        if event in ("pre_tool_use", "pre_tool_arg_validation"):
+            tc = ctx.tool_call
+            if isinstance(tc, dict):
+                ctx.tool_call = {
+                    "name": tc.get("name"),
+                    "arguments": dict(decision.payload),
+                }
+                ctx.shared["_toolathlon_args_rewritten"] = True
+        return False
+
     if kind is DecisionKind.BLOCK:
+        if event in ("pre_tool_use", "pre_tool_arg_validation"):
+            ctx.shared["_toolathlon_block_reason"] = (
+                decision.reason or f"{comp.name}: block"
+            )
+            return True
         ctx.blocked = True
         ctx.blocked_reason = decision.reason or f"{comp.name}: block"
         return True
+
+    # DEFER is rejected at registration in v2; if we get here, treat as ALLOW.
     return False
 
 
-def _validate_for_tier1(comp: "Component", event_name: str,
-                        kind: DecisionKind) -> None:
+# Legacy alias preserved for external introspection.
+_apply_tier1_decision = _apply_decision
+
+
+def _validate_event(comp: "Component", event_name: str,
+                    kind: DecisionKind) -> None:
     validate_decision(comp.cls, event_name, kind)
+
+
+# Legacy alias.
+_validate_for_tier1 = _validate_event
 
 
 # --- trace sink --------------------------------------------------------------
@@ -137,19 +186,6 @@ def _trace_dir() -> Path:
     d = Path(os.environ.get("COMPONENT_STATE_DIR", ".component-state-toolathlon")) / tag
     d.mkdir(parents=True, exist_ok=True)
     return d
-
-
-def _trace(component_name: str, mount: Mount, decision_kind: DecisionKind,
-           extra: dict) -> None:
-    rec = {
-        "ts": time.time(),
-        "component": component_name,
-        "mount": mount.value,
-        "decision": decision_kind.value,
-        **extra,
-    }
-    with (_trace_dir() / "fired.jsonl").open("a") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
 # --- ctx helpers -------------------------------------------------------------
@@ -192,68 +228,67 @@ class ComponentDispatcher:
 
     def __init__(
         self,
-        by_mount: dict[Mount, list[Component]],
+        components: list[Component],
         session_state: dict[str, dict],
         domain_policy: str,
         tool_names: tuple[str, ...],
     ):
-        self._by_mount = by_mount
         self._session_state = session_state
         self._domain_policy = domain_policy
         self._tool_names = tool_names
 
-        # Phase B/C/D: parallel core dispatcher for Tier-1 events. The
-        # existing v1/v2 `fire_*` paths handle PRE_TOOL_USE / POST_TOOL_USE
-        # via tau2-shaped ctx unchanged; Tier-1 events route through here.
-        all_comps: list[Component] = [
-            c for comps in by_mount.values() for c in comps
-        ]
+        # Single core dispatcher — components bucketed by their string
+        # `listens` field. Tool-wrapping fire_*_with_args / inline
+        # surfaces below route every PRE_TOOL_USE / POST_TOOL_USE call
+        # through this same dispatcher.
         self._core = _CoreDispatcher(
-            all_comps,
-            validate_decision=_validate_for_tier1,
-            apply_decision=_apply_tier1_decision,
+            list(components),
+            validate_decision=_validate_event,
+            apply_decision=_apply_decision,
             trace_sink=_trace_event,
         )
 
-    def _ctx(self, mount: Mount, shared: dict, **extra: Any) -> ComponentContext:
-        return ComponentContext(
+    def _ctx(self, event_name: str, mount: Mount, shared: dict,
+              **extra: Any) -> ComponentContext:
+        ctx = ComponentContext(
             mount=mount,
             domain_policy=self._domain_policy,
             tool_names=self._tool_names,
             history=list(shared.get("_logs_snapshot", []) or []),
             shared=shared,
             state=self._session_state,
+            event=event_name,
             **extra,
         )
-
-    # ---- Tier-1 event surface (Phase C/D) -------------------------------
-
-    def make_tier1_ctx(self, event_name: str, mount: Mount,
-                       shared: dict, **extra: Any) -> ComponentContext:
-        """Build a ComponentContext with Tier-1 capability hooks wired."""
-        ctx = self._ctx(mount, shared, event=event_name, **extra)
         ctx._impl_chat = _make_chat_impl()
         ctx._impl_emit = lambda name, payload: self._core.emit(name, ctx)
         return ctx
 
-    def emit(self, event_name: str, ctx: ComponentContext) -> None:
-        """Fire a Tier-1 event through the parallel dispatcher.
+    # ---- Event surface --------------------------------------------------
 
-        Called by task_agent.py at setup_agent / post-Runner / save_results
-        boundaries. The 5 SDK-internal events (`pre_llm_request`,
+    def make_tier1_ctx(self, event_name: str, mount: Mount,
+                       shared: dict, **extra: Any) -> ComponentContext:
+        """Build a ComponentContext with capability hooks wired. Kept
+        under the `make_tier1_ctx` name for backward-compat with callers;
+        internally delegates to `_ctx` which now does the wiring."""
+        return self._ctx(event_name, mount, shared, **extra)
+
+    def emit(self, event_name: str, ctx: ComponentContext) -> None:
+        """Fire an event through the unified core dispatcher. The 5
+        SDK-internal Tier-1 events (`pre_llm_request`,
         `pre_tool_arg_validation`, `post_tool_result_raw`, `on_tool_error`,
-        `on_no_tool_call_emitted`) are NOT emitted in v1; subscribers to
-        them load but never fire."""
+        `on_no_tool_call_emitted`) are NOT emitted by the toolathlon
+        runtime in v1; subscribers to them load but never fire."""
         self._core.emit(event_name, ctx)
 
     def wire_capabilities(self, ctx: ComponentContext) -> None:
-        """Attach per-task capability implementations to a ctx the legacy
-        `fire_*` path constructs. ctx.chat → agent.llm.chat (locked SUT
-        model); ctx.emit → re-enter this dispatcher (with depth cap)."""
+        """Attach per-task capability implementations to a ctx built
+        outside `_ctx`. ctx.chat → agent.llm.chat (locked SUT model);
+        ctx.emit → re-enter this dispatcher (with depth cap)."""
         ctx._impl_chat = _make_chat_impl()
         ctx._impl_emit = lambda name, payload: self._core.emit(name, ctx)
 
-    # ---- v2 surface (real args; returns Decision to wrapper) ------------
+    # ---- tool-wrapper entry points (v2 path; PRE/POST_TOOL_USE) ----------
 
     def fire_pre_tool_use_with_args(
         self,
@@ -261,46 +296,32 @@ class ComponentDispatcher:
         tool_name: str,
         args: dict,
     ) -> Decision:
-        """Used by tool_wrappers.py: dispatch PRE_TOOL_USE with REAL args
-        and return the (last-wins) Decision so the wrapper can act on it.
+        """Used by tool_wrappers.py: dispatch PRE_TOOL_USE through the
+        unified core dispatcher with REAL args, then translate the
+        post-emit ctx state back into a single Decision for the wrapper.
 
-        If no component matches, returns Decision.allow(). If multiple
-        components match, REWRITE_TOOL_ARGS / BLOCK from the last one
-        wins; earlier components' rewrites compose into the args we pass
-        to the next (sequential rewrite). BLOCK short-circuits the loop.
+        Multi-component composition: REWRITE_TOOL_ARGS rewrites mutate
+        `ctx.tool_call` in place (via `_apply_decision`); subsequent
+        subscribers see the previous subscriber's rewritten args.
+        BLOCK short-circuits via `_apply_decision` returning stop=True.
         """
-        comps = self._by_mount.get(Mount.PRE_TOOL_USE, [])
-        if not comps:
-            return Decision.allow()
-        current_args = dict(args)
-        last_decision = Decision.allow()
-        for comp in comps:
-            tool_proxy = {"name": tool_name, "arguments": current_args}
-            ctx = self._ctx(
-                Mount.PRE_TOOL_USE,
-                shared,
-                tool_call=tool_proxy,
+        ctx = self._ctx(
+            "pre_tool_use", Mount.PRE_TOOL_USE, shared,
+            tool_call={"name": tool_name, "arguments": dict(args)},
+        )
+        ctx.shared.pop("_toolathlon_args_rewritten", None)
+        ctx.shared.pop("_toolathlon_block_reason", None)
+        self._core.emit("pre_tool_use", ctx)
+
+        block_reason = ctx.shared.pop("_toolathlon_block_reason", None)
+        if block_reason is not None:
+            return Decision.block(block_reason)
+        if ctx.shared.pop("_toolathlon_args_rewritten", False) \
+                and isinstance(ctx.tool_call, dict):
+            return Decision.rewrite_tool_args(
+                dict(ctx.tool_call.get("arguments", {}))
             )
-            if comp.matcher is not None and not comp.matcher(ctx):
-                continue
-            decision = comp.handler(ctx)
-            validate_decision(comp.cls, comp.mount, decision.kind)
-            _trace(comp.name, comp.mount, decision.kind, {"tool": tool_name})
-            if decision.kind is DecisionKind.ALLOW:
-                continue
-            if decision.kind is DecisionKind.REWRITE_TOOL_ARGS:
-                current_args = dict(decision.payload)
-                last_decision = Decision(
-                    DecisionKind.REWRITE_TOOL_ARGS,
-                    payload=current_args,
-                    reason=decision.reason,
-                )
-                continue
-            if decision.kind is DecisionKind.BLOCK:
-                return decision
-            # DEFER is rejected at registration in v2; if we get here
-            # something is misconfigured. Fall through to ALLOW.
-        return last_decision
+        return Decision.allow()
 
     def fire_post_tool_use_inline(
         self,
@@ -309,31 +330,24 @@ class ComponentDispatcher:
         args: dict,
         result_str: str,
     ) -> Decision:
-        """Used by tool_wrappers.py: dispatch POST_TOOL_USE inline (after
-        real tool invocation, before result returns to SDK) and collect
-        INJECT_CONTEXT payloads into a single concatenated decision.
-
-        Returns a Decision: INJECT_CONTEXT(joined_text) if at least one
-        component injected, else ALLOW.
+        """Used by tool_wrappers.py: dispatch POST_TOOL_USE through the
+        unified core dispatcher inline (after real tool invocation,
+        before result returns to SDK). `_apply_decision` collects
+        INJECT_CONTEXT payloads into `_toolathlon_post_tool_injections`;
+        return a single concatenated Decision for the wrapper.
         """
-        comps = self._by_mount.get(Mount.POST_TOOL_USE, [])
-        if not comps:
-            return Decision.allow()
-        incoming = {"tool_name": tool_name, "args": dict(args), "output": result_str}
-        parts: list[str] = []
-        for comp in comps:
-            ctx = self._ctx(
-                Mount.POST_TOOL_USE,
-                shared,
-                incoming_message=incoming,
-            )
-            if comp.matcher is not None and not comp.matcher(ctx):
-                continue
-            decision = comp.handler(ctx)
-            validate_decision(comp.cls, comp.mount, decision.kind)
-            _trace(comp.name, comp.mount, decision.kind, {"tool": tool_name})
-            if decision.kind is DecisionKind.INJECT_CONTEXT:
-                parts.append(str(decision.payload))
+        ctx = self._ctx(
+            "post_tool_use", Mount.POST_TOOL_USE, shared,
+            incoming_message={
+                "tool_name": tool_name,
+                "args": dict(args),
+                "output": result_str,
+            },
+        )
+        ctx.shared.pop("_toolathlon_post_tool_injections", None)
+        self._core.emit("post_tool_use", ctx)
+
+        parts = ctx.shared.pop("_toolathlon_post_tool_injections", []) or []
         if not parts:
             return Decision.allow()
         return Decision.inject_context("\n\n".join(parts))
@@ -381,21 +395,21 @@ class ComponentRunHooks(RunHooks):
 
 
 def build_dispatcher(
-    by_mount: dict[Mount, list[Component]],
+    components: list[Component],
     session_state: dict[str, dict],
     domain_policy: str,
     tool_names: tuple[str, ...],
 ) -> ComponentDispatcher:
-    return ComponentDispatcher(by_mount, session_state, domain_policy, tool_names)
+    return ComponentDispatcher(components, session_state, domain_policy, tool_names)
 
 
 def build_hooks(
-    by_mount: dict[Mount, list[Component]],
+    components: list[Component],
     session_state: dict[str, dict],
     domain_policy: str,
     tool_names: tuple[str, ...],
 ) -> tuple[ComponentAgentHooks, ComponentRunHooks, ComponentDispatcher]:
-    """v2: also return the dispatcher so task_agent / tool_wrappers can
-    share the same instance (single source of truth for matcher loops)."""
-    disp = ComponentDispatcher(by_mount, session_state, domain_policy, tool_names)
+    """Return (agent_hooks, run_hooks, dispatcher). All three share the
+    same ComponentDispatcher instance (single source of truth)."""
+    disp = ComponentDispatcher(components, session_state, domain_policy, tool_names)
     return ComponentAgentHooks(disp), ComponentRunHooks(disp), disp

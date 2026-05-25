@@ -82,24 +82,20 @@ def _resolve_workflow_and_components() -> tuple[Workflow, dict[str, Component]]:
     return wf, components_by_name
 
 
-def _group_by_mount(
+def _active_components(
     wf: Workflow,
     components_by_name: dict[str, Component],
-) -> dict[Mount, list[Component]]:
-    """Bucket active components by mount, sorted by (priority, insertion).
-
-    Mirrors the bucketing in agent_tau2/component_runtime/agent.py.
-    """
-    by_mount: dict[Mount, list[Component]] = {m: [] for m in Mount}
+) -> list[Component]:
+    """Flat list of active components in workflow insertion order.
+    The core dispatcher uses Python's stable sort on `priority` to
+    preserve (priority, insertion) order — same effect as the legacy
+    per-mount bucketing did, but without the dict-of-lists overhead."""
+    out: list[Component] = []
     for name in wf.active_nodes():
         comp = components_by_name.get(name)
-        if comp is None:
-            continue
-        by_mount[comp.mount].append(comp)
-    insertion = {n: i for i, n in enumerate(wf.nodes)}
-    for mount in Mount:
-        by_mount[mount].sort(key=lambda c: (c.priority, insertion.get(c.name, 1_000_000)))
-    return by_mount
+        if comp is not None:
+            out.append(comp)
+    return out
 
 
 def build_agent(
@@ -119,7 +115,7 @@ def build_agent(
     **_unused: Any,
 ) -> TaskAgent:
     wf, components_by_name = _resolve_workflow_and_components()
-    by_mount = _group_by_mount(wf, components_by_name)
+    active = _active_components(wf, components_by_name)
     # Start empty so a Component's `ctx.state.setdefault(name, {...full default...})`
     # actually installs its default dict on first call. Pre-seeding `{name: {}}` here
     # silently breaks that pattern: setdefault on an existing key returns the empty
@@ -131,7 +127,7 @@ def build_agent(
     # hasn't been connected so we don't know tool names yet. Hooks read
     # `_cr_tool_names_snapshot()` from the live TaskAgent at fire time.
     agent_hooks, run_hooks, dispatcher = build_hooks(
-        by_mount=by_mount,
+        components=active,
         session_state=session_state,
         domain_policy=getattr(task_config, "task_str", "") or "",
         tool_names=(),
@@ -151,8 +147,6 @@ def build_agent(
         allow_resume=allow_resume,
         manual=manual,
         single_turn_mode=single_turn_mode,
-        cr_components_by_mount=by_mount,
         cr_session_state=session_state,
         cr_dispatcher=dispatcher,
-        cr_wrap_tools=True,                  # v2-only; v1 path removed
     )

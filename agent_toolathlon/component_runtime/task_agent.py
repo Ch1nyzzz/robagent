@@ -139,15 +139,12 @@ class TaskAgent:
         manual: bool = False,
         single_turn_mode: bool = False,
         # CR_HOOK: component-runtime extensions (None = pure v0 baseline behaviour).
-        cr_components_by_mount: Optional[Dict["CrMount", List["CrComponent"]]] = None,
         cr_session_state: Optional[Dict[str, dict]] = None,
         # v2: dispatcher shared between AgentHooks and the FunctionTool
-        # wrappers; cr_wrap_tools=True swaps MCP servers for FunctionTools
-        # so PRE_TOOL_USE REWRITE/BLOCK + POST_TOOL_USE INJECT work even
-        # in single_turn_mode tasks. None = legacy v1 path (mcp_servers
-        # given directly to Agent).
+        # wrappers. Tool wrapping is mandatory (the v1 no-args fallback
+        # was removed); the wrapper handles PRE_TOOL_USE REWRITE/BLOCK +
+        # POST_TOOL_USE INJECT inline. None = pure v0 baseline.
         cr_dispatcher: Optional["ComponentDispatcher"] = None,
-        cr_wrap_tools: bool = False,
     ):
         self.task_config = task_config
         self.agent_config = agent_config
@@ -159,17 +156,14 @@ class TaskAgent:
         self.run_hooks = run_hooks
         self.termination_checker = termination_checker or self._default_termination_checker
 
-        # CR_HOOK: hold the component lookup tables. Empty dict on a v0
-        # candidate; populated by build_agent on the cr candidate. Every
-        # CR_HOOK dispatch site below is a no-op when these are empty.
-        self._cr_by_mount: Dict["CrMount", List["CrComponent"]] = (
-            cr_components_by_mount or {m: [] for m in CrMount}
-        )
+        # CR_HOOK: session-scope state lookup, shared with the dispatcher.
         self._cr_session_state: Dict[str, dict] = (
             cr_session_state if cr_session_state is not None else {}
         )
         self._cr_dispatcher = cr_dispatcher
-        self._cr_wrap_tools = bool(cr_wrap_tools)
+        # Tool wrapping is the only supported path (v1 fallback was
+        # removed during the event-runtime cleanup).
+        self._cr_wrap_tools = cr_dispatcher is not None
         
         self.agent: Optional[Agent] = None
         self.mcp_manager: Optional[MCPServerManager] = None
@@ -216,7 +210,7 @@ class TaskAgent:
         self.status_manager = TaskStatusManager(task_config.task_root)
 
     # ------------------------------------------------------------------
-    # CR_HOOK helpers (no-op when _cr_by_mount is empty).
+    # CR_HOOK helpers (no-op when _cr_dispatcher is None / has no subscribers).
     # ------------------------------------------------------------------
 
     def _cr_tool_names_snapshot(self) -> tuple[str, ...]:
@@ -226,86 +220,27 @@ class TaskAgent:
             if isinstance(t, dict)
         )
 
-    def _cr_dispatch_static(
-        self,
-        mount: "CrMount",
-        proposed_system_prompt: Optional[str] = None,
-    ) -> str:
-        """Dispatch a static (no tool / user / history) mount and return
-        the concatenation of INJECT_CONTEXT payloads."""
-        comps = self._cr_by_mount.get(mount, [])
-        if not comps:
-            return ""
-        # Local import to avoid circular dependency at module-load time.
-        from agent_toolathlon.component_runtime.hooks import _trace
-        parts: list[str] = []
-        running = proposed_system_prompt
-        for comp in comps:
-            ctx = CrCtx(
-                mount=mount,
-                proposed_system_prompt=running,
-                tool_names=self._cr_tool_names_snapshot(),
-                history=list(self.logs) if hasattr(self, "logs") and self.logs else [],
-                shared=self.shared_context if isinstance(self.shared_context, dict) else {},
-                state=self._cr_session_state,
-            )
-            if comp.matcher is not None and not comp.matcher(ctx):
-                continue
-            decision = comp.handler(ctx)
-            validate_decision(comp.cls, comp.mount, decision.kind)
-            _trace(comp.name, comp.mount, decision.kind, {})
-            if decision.kind is CrDecisionKind.INJECT_CONTEXT:
-                text = str(decision.payload)
-                parts.append(text)
-                if running is not None:
-                    running = running + "\n\n" + text
-        return "\n\n".join(parts)
-
-    def _cr_build_instructions(self, base_instructions: str) -> str:
-        """CR_HOOK #1 helper: PRE_CONTEXT_BUILD + SESSION_START."""
-        proposed = base_instructions
-        pcb = self._cr_dispatch_static(CrMount.PRE_CONTEXT_BUILD, proposed)
-        if pcb:
-            proposed = proposed + "\n\n" + pcb
-        ss = self._cr_dispatch_static(CrMount.SESSION_START, proposed)
-        joined = "\n\n".join(p for p in (pcb, ss) if p)
-        if not joined:
-            return base_instructions
-        return (
-            f"{base_instructions}\n\n"
-            f"<components_prompt_injection>\n{joined}\n</components_prompt_injection>"
-        )
-
     def _cr_apply_user_prompt_submit(self, user_query: str) -> str:
-        """CR_HOOK #2: append USER_PROMPT_SUBMIT injections to the
-        user_query before it lands in self.logs."""
-        comps = self._cr_by_mount.get(CrMount.USER_PROMPT_SUBMIT, [])
-        if not comps:
+        """Fire `user_prompt_submit` through the dispatcher and append any
+        INJECT_CONTEXT fragments to the user query before it lands in
+        `self.logs`. apply_decision collects the fragments under
+        `_toolathlon_user_prompt_inject`; we drain + wrap them."""
+        if self._cr_dispatcher is None:
             return user_query
-        from agent_toolathlon.component_runtime.hooks import _trace
-        parts: list[str] = []
-        for comp in comps:
-            ctx = CrCtx(
-                mount=CrMount.USER_PROMPT_SUBMIT,
-                incoming_message={"role": "user", "content": user_query},
-                tool_names=self._cr_tool_names_snapshot(),
-                history=list(self.logs),
-                shared=self.shared_context,
-                state=self._cr_session_state,
-            )
-            if comp.matcher is not None and not comp.matcher(ctx):
-                continue
-            decision = comp.handler(ctx)
-            validate_decision(comp.cls, comp.mount, decision.kind)
-            _trace(comp.name, comp.mount, decision.kind, {})
-            if decision.kind is CrDecisionKind.INJECT_CONTEXT:
-                parts.append(str(decision.payload))
+        ctx = self._cr_dispatcher.make_tier1_ctx(
+            "user_prompt_submit", CrMount.USER_PROMPT_SUBMIT,
+            self.shared_context,
+            incoming_message={"role": "user", "content": user_query},
+        )
+        ctx.shared.pop("_toolathlon_user_prompt_inject", None)
+        self._cr_dispatcher.emit("user_prompt_submit", ctx)
+        parts = ctx.shared.pop("_toolathlon_user_prompt_inject", []) or []
         if not parts:
             return user_query
         return (
             f"{user_query}\n\n"
             f"<components_user_prompt_extension>\n"
-            f"{chr(10).join(parts)}\n"
+            f"{chr(10).join(str(p) for p in parts)}\n"
             f"</components_user_prompt_extension>"
         )
 
@@ -604,41 +539,50 @@ class TaskAgent:
                 else:
                     local_tools.append(tool_or_toolsets)
 
-        # CR_HOOK #1: PRE_CONTEXT_BUILD + SESSION_START → instructions
-        # (no-op when _cr_by_mount is empty).
-        agent_instructions = self._cr_build_instructions(
-            base_instructions=self.task_config.system_prompts.agent,
-        )
-        # Tier-1 pre_context_build: alias for the PRE_CONTEXT_BUILD phase
-        # (cross-sibling event vocabulary). INJECT_CONTEXT decisions land
-        # in `shared_context['tier1_prompt_inject']` and are appended to
-        # `agent_instructions` below.
+        # Single setup-phase emit pipeline: each event accumulates
+        # INJECT_CONTEXT fragments into ctx.proposed_system_prompt
+        # (via _apply_decision) so subsequent subscribers see them.
+        # Existing PRE_CONTEXT_BUILD / SESSION_START components fire via
+        # the listens=mount.value alias, so no double-firing.
+        from .types import Mount as _CrMount  # local import to avoid coupling
+        base_instructions = self.task_config.system_prompts.agent
+        agent_instructions = base_instructions
+        injected_parts: list[str] = []
         if self._cr_dispatcher is not None:
-            from .types import Mount as _CrMount  # local import to avoid top-level coupling
-            _t1_ctx = self._cr_dispatcher.make_tier1_ctx(
-                "pre_context_build", _CrMount.PRE_CONTEXT_BUILD,
-                self.shared_context,
-                proposed_system_prompt=agent_instructions,
+            for event_name, _mount in (
+                ("pre_context_build", _CrMount.PRE_CONTEXT_BUILD),
+                ("session_start",     _CrMount.SESSION_START),
+                ("pre_agent_construct", _CrMount.SESSION_START),
+            ):
+                ctx = self._cr_dispatcher.make_tier1_ctx(
+                    event_name, _mount,
+                    self.shared_context,
+                    proposed_system_prompt=agent_instructions,
+                )
+                ctx.shared.pop("tier1_prompt_inject", None)
+                self._cr_dispatcher.emit(event_name, ctx)
+                for fragment in (ctx.shared.pop("tier1_prompt_inject", []) or []):
+                    injected_parts.append(str(fragment))
+                # apply_decision accumulates into proposed_system_prompt;
+                # carry forward for the next event.
+                agent_instructions = ctx.proposed_system_prompt or agent_instructions
+        if injected_parts:
+            agent_instructions = (
+                f"{base_instructions}\n\n"
+                f"<components_prompt_injection>\n"
+                f"{chr(10).join(injected_parts)}\n"
+                f"</components_prompt_injection>"
             )
-            self._cr_dispatcher.emit("pre_context_build", _t1_ctx)
-            for fragment in (self.shared_context.pop("tier1_prompt_inject", []) or []):
-                agent_instructions = agent_instructions + "\n\n" + str(fragment)
 
-        # v2: tool-wrapping branch. With cr_wrap_tools=True we expose
-        # every MCP tool as an SDK FunctionTool whose `on_invoke_tool`
-        # callable is ComponentMCPToolWrapper — so PRE_TOOL_USE sees the
-        # real args (REWRITE / true BLOCK) and POST_TOOL_USE inject is
-        # concatenated into the tool result string (LLM sees it on the
-        # next inference, single-turn or not). The Agent then sees ZERO
-        # mcp_servers — all tool invocations go through our wrappers.
+        # Tool-wrapping is mandatory when a dispatcher is present (the
+        # v1 no-args fallback was removed). With wrapping, every MCP tool
+        # becomes an SDK FunctionTool whose `on_invoke_tool` callable is
+        # ComponentMCPToolWrapper — PRE_TOOL_USE sees real args, BLOCK +
+        # REWRITE_TOOL_ARGS work, POST_TOOL_USE INJECT_CONTEXT is
+        # concatenated into the tool result string the LLM sees next.
         mcp_servers_arg: list = []
         extra_tools: list = []
-        if self._cr_wrap_tools:
-            if self._cr_dispatcher is None:
-                raise RuntimeError(
-                    "cr_wrap_tools=True requires cr_dispatcher; "
-                    "build_agent must provide it."
-                )
+        if self._cr_wrap_tools and self._cr_dispatcher is not None:
             extra_tools = await wrap_mcp_tools_as_function_tools(
                 self.mcp_manager, self._cr_dispatcher,
             )
@@ -647,20 +591,6 @@ class TaskAgent:
             )
         else:
             mcp_servers_arg = [*self.mcp_manager.get_all_connected_servers()]
-
-        # Tier-1 pre_agent_construct: last chance to influence the
-        # request shape before the SDK Agent is sealed. INJECT_CONTEXT
-        # fragments append to agent_instructions for this final time.
-        if self._cr_dispatcher is not None:
-            from .types import Mount as _CrMount
-            _pac_ctx = self._cr_dispatcher.make_tier1_ctx(
-                "pre_agent_construct", _CrMount.SESSION_START,
-                self.shared_context,
-                proposed_system_prompt=agent_instructions,
-            )
-            self._cr_dispatcher.emit("pre_agent_construct", _pac_ctx)
-            for fragment in (self.shared_context.pop("tier1_prompt_inject", []) or []):
-                agent_instructions = agent_instructions + "\n\n" + str(fragment)
 
         self.agent = Agent(
             name="Assistant",
