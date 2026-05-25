@@ -27,6 +27,10 @@ from meta_harness.component_runtime_core.shared_types import (
     StateScope,
     Trust,
 )
+# Phase C: ComponentContext inherits EventContext for capability methods
+# (ctx.chat / ctx.emit / ctx.emit_upstream) and the shared cross-event
+# scratchpads. The per-bench Dispatcher wires `_impl_*` at construction.
+from meta_harness.component_runtime_core.event_context import EventContext
 
 
 # --- enums -------------------------------------------------------------------
@@ -115,20 +119,24 @@ class Decision:
 # --- context -----------------------------------------------------------------
 
 
-@dataclass
-class ComponentContext:
+@dataclass(kw_only=True)
+class ComponentContext(EventContext):
     """Argument to every matcher / handler.
 
-    One ComponentContext is constructed per task and threaded through every
-    mount dispatched for that task. Runtime-owned fields are mutated only by
-    the dispatcher applying Decisions or by the agent between mount points.
-    Handlers may freely read/write `ctx.shared` and `ctx.state[component_name]`.
-    """
-    mount: Mount
+    Threaded through every mount/event in one task. Runtime-owned fields
+    are mutated by the dispatcher applying Decisions or by the agent
+    between mount points. Handlers may freely read/write `ctx.shared`
+    and `ctx.state[component_name]`.
 
+    Inherits from EventContext (Phase C): event, task_id, shared, state,
+    persistent_state, upstream, blocked, blocked_reason, plus capability
+    methods (ctx.chat / ctx.emit / ctx.emit_upstream / ctx.fetch / ctx.read_file).
+    `@dataclass(kw_only=True)` lets non-default mount/benchmark fields
+    come after EventContext's default fields.
+    """
     # Stable per-task context (read-only after PRE_PROMPT_BUILD):
+    mount: Mount                                    # most recent Mount enum (legacy)
     benchmark: str                                  # domain slug, e.g. "calendar", "itsm"
-    task_id: str
     user_info: dict = field(default_factory=dict)   # {user_id, name, email, timezone}
     gym_servers: list = field(default_factory=list) # list of {mcp_server_name, mcp_server_url, ...}
     tool_specs: list = field(default_factory=list)  # list of {name, description, input_schema, _mcp_server_name, ...}
@@ -160,14 +168,8 @@ class ComponentContext:
     # Final emit (mutated at PRE_FINAL_EMIT):
     final_output: str = ""
 
-    # Control flow:
-    blocked: bool = False
-    blocked_reason: str = ""
-
-    # Cumulative audit / shared state:
+    # Cumulative audit:
     executed_tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    shared: dict = field(default_factory=dict)
-    state: dict = field(default_factory=dict)       # per-component name → state dict
     log: Any = None
 
 

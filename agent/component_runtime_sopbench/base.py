@@ -21,6 +21,9 @@ from pathlib import Path
 from threading import Lock
 from typing import Optional
 
+from agent.llm import chat as _bench_chat
+from meta_harness.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
+
 from .policy import ComponentPolicyError, validate_decision
 from .registry import COMPONENTS_DIR_DEFAULT, load_components_from_dir
 from .types import (
@@ -53,16 +56,118 @@ _CACHE_LOCK = Lock()
 _CACHE: dict[tuple[str, str], "Dispatcher"] = {}
 
 
+def _make_chat_impl():
+    """Build the per-task ctx.chat implementation. The locked SUT model is
+    enforced inside `agent.llm.chat` itself (raises on `model=` override).
+    The wrapper translates EventContext.chat's `system_override` kwarg into
+    a messages-list rewrite so the upstream API accepts it."""
+    def _impl(messages, *, max_tokens, temperature, system_override, tools):
+        if system_override:
+            messages = (
+                [{"role": "system", "content": system_override}]
+                + [m for m in messages if m.get("role") != "system"]
+            )
+        return _bench_chat(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            tools=tools,
+        )
+    return _impl
+
+
+def _apply_decision_sopbench(ctx: ComponentContext, decision,
+                              comp: Component) -> bool:
+    """Sopbench-specific decision applier (passed to core.Dispatcher).
+
+    Event-name routing (covers both legacy mount.value strings and Tier-1
+    event names emitted in Phase D):
+
+      INJECT_CONTEXT @ pre-LLM-ish events  → ctx.system_prompt
+      INJECT_CONTEXT @ post-LLM-ish / tool events → ctx.shared['post_llm_inject']
+      REWRITE        @ pre_prompt_build/pre_context_build       → ctx.user_prompt
+      REWRITE        @ pre_llm_turn                             → ctx.messages
+      REWRITE        @ post_llm_response[_raw] / on_*           → ctx.raw_response
+      REWRITE        @ pre_tool_use / pre_tool_arg_validation   → ctx.current_tool_args
+      REWRITE        @ post_tool_use / post_tool_result_raw /
+                       on_tool_error                            → ctx.current_tool_result_str
+      REWRITE        @ pre_final_emit                           → ctx.final_output
+      BLOCK          @ pre_tool_use / pre_tool_arg_validation   → skip_current_tool flag
+                                                                   (does NOT terminate the loop)
+      BLOCK          @ anything else                            → ctx.blocked + stop=True
+    """
+    event = ctx.event or ""
+    kind = decision.kind
+    if kind is DecisionKind.ALLOW:
+        return False
+    if kind is DecisionKind.INJECT_CONTEXT:
+        text = str(decision.payload or "")
+        if event in (
+            "session_start",
+            "pre_prompt_build",
+            "pre_context_build",
+            "task_received",
+            "pre_agent_construct",
+            "pre_llm_request",
+            "pre_llm_turn",
+        ):
+            ctx.system_prompt = (ctx.system_prompt + "\n\n" + text).strip()
+        else:
+            ctx.shared.setdefault("post_llm_inject", []).append(text)
+        return False
+    if kind is DecisionKind.REWRITE:
+        payload = decision.payload
+        if event in ("pre_prompt_build", "pre_context_build"):
+            ctx.user_prompt = str(payload or "")
+        elif event == "pre_llm_turn":
+            if isinstance(payload, list):
+                ctx.messages = list(payload)
+        elif event in (
+            "post_llm_response",
+            "post_llm_response_raw",
+            "on_length_truncation",
+            "on_empty_response",
+            "on_no_tool_call_emitted",
+        ):
+            ctx.raw_response = str(payload or "")
+        elif event in ("pre_tool_use", "pre_tool_arg_validation"):
+            if isinstance(payload, dict):
+                ctx.current_tool_args = dict(payload)
+        elif event in ("post_tool_use", "post_tool_result_raw", "on_tool_error"):
+            ctx.current_tool_result_str = str(payload or "")
+        elif event == "pre_final_emit":
+            ctx.final_output = "" if payload is None else str(payload)
+        return False
+    if kind is DecisionKind.BLOCK:
+        # Per-tool-call BLOCK: skip the tool, don't halt the whole task.
+        if event in ("pre_tool_use", "pre_tool_arg_validation"):
+            ctx.shared["skip_current_tool"] = True
+            ctx.shared["skip_current_tool_reason"] = (
+                decision.reason or f"{comp.name}: block"
+            )
+            return False
+        ctx.blocked = True
+        ctx.blocked_reason = decision.reason or f"{comp.name}: block"
+        return True
+    return False
+
+
+def _validate_for_core(comp: Component, event_name: str,
+                       kind: DecisionKind) -> None:
+    """Adapter: core.Dispatcher passes `event_name: str`, sibling policy
+    accepts Mount enum OR string (see policy._normalise_key)."""
+    validate_decision(comp.cls, event_name, kind)
+
+
 class Dispatcher:
     """Single-workflow dispatcher used by SopBenchAgent.
 
-    Holds a parsed Workflow + components-by-mount mapping. Stateless per
-    task: every task constructs its own ComponentContext and threads it
-    through the dispatch calls.
-
-    Construction is intentionally cheap-to-reuse; prefer `build_dispatcher`
-    which caches by (workflow_path, comp_dir) so multi-threaded eval loops
-    don't reload component modules for every task.
+    Phase B/C migration: internally wraps `core.Dispatcher` (the
+    event-keyed dispatcher) while keeping the existing `dispatch(mount,
+    ctx)` public surface so SopBenchAgent doesn't change shape. Adds
+    `emit(event_name, ctx)` (Phase D) and `wire_capabilities(ctx)`
+    (Phase C, hooks ctx.chat / ctx.emit) for the new event-style
+    integrations.
     """
 
     def __init__(
@@ -77,6 +182,15 @@ class Dispatcher:
         self.components_by_mount = components_by_mount
         self.run_tag = run_tag
         self._state_dir = state_dir
+        flat: list[Component] = []
+        for mount, comps in components_by_mount.items():
+            flat.extend(comps)
+        self._core = _CoreDispatcher(
+            flat,
+            validate_decision=_validate_for_core,
+            apply_decision=_apply_decision_sopbench,
+            trace_sink=self._trace_sink,
+        )
 
     # --- trace sink -------------------------------------------------------
 
@@ -89,13 +203,14 @@ class Dispatcher:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _trace(self, component_name: str, mount: Mount,
-               decision_kind: DecisionKind, extra: dict) -> None:
+    def _trace_sink(self, component_name: str, event_name: str,
+                    decision_kind_value: str, extra: dict) -> None:
         rec = {
             "ts": time.time(),
             "component": component_name,
-            "mount": mount.value,
-            "decision": decision_kind.value,
+            "event": event_name,
+            "mount": event_name,
+            "decision": decision_kind_value,
             **extra,
         }
         try:
@@ -108,97 +223,31 @@ class Dispatcher:
     # --- dispatch ---------------------------------------------------------
 
     def dispatch(self, mount: Mount, ctx: ComponentContext) -> None:
-        """Fire all active components at `mount` in priority order.
+        """Backward-compat surface: fire components subscribed to `mount.value`.
 
-        Decisions mutate `ctx` in place:
-          INJECT_CONTEXT @ SESSION_START / PRE_PROMPT_BUILD
-              → append to ctx.system_prompt
-          INJECT_CONTEXT @ POST_LLM_RESPONSE
-              → append to ctx.shared['post_llm_inject'] (read by agent at
-                start of next turn and added as system reminder)
-          REWRITE @ PRE_PROMPT_BUILD   → ctx.user_prompt = payload
-          REWRITE @ PRE_LLM_TURN       → ctx.messages = list(payload)
-          REWRITE @ POST_LLM_RESPONSE  → ctx.raw_response = payload
-                                         (tool_calls preserved; use
-                                         PRE_TOOL_USE BLOCK to drop them)
-          REWRITE @ PRE_TOOL_USE       → ctx.current_tool_args = dict(payload)
-          REWRITE @ POST_TOOL_USE      → ctx.current_tool_result_str = payload
-          REWRITE @ PRE_FINAL_EMIT     → ctx.final_output = payload (None → blocked)
-          BLOCK @ PRE_TOOL_USE         → ctx.shared['skip_current_tool'] = True
-                                         (agent skips dispatch; ctx.blocked stays False)
-          BLOCK @ anything else        → ctx.blocked = True
-        """
+        Replaced internally by `core.Dispatcher.emit(mount.value, ctx)`. The
+        ctx.mount sync + the PRE_TOOL_USE skip-flag reset stay here because
+        sopbench_agent reads ctx.mount in some matchers."""
         ctx.mount = mount
-        # Reset per-mount skip-tool flag so a previous PRE_TOOL_USE call
-        # doesn't carry over to a later mount.
         if mount is Mount.PRE_TOOL_USE:
             ctx.shared.pop("skip_current_tool", None)
+        self._core.emit(mount.value, ctx)
 
-        for comp in self.components_by_mount.get(mount, []):
-            if ctx.blocked:
-                return
-            if comp.matcher is not None:
-                try:
-                    if not comp.matcher(ctx):
-                        continue
-                except Exception as e:
-                    self._trace(comp.name, mount, DecisionKind.ALLOW,
-                                {"matcher_error": repr(e)})
-                    continue
-            try:
-                decision = comp.handler(ctx)
-            except Exception as e:
-                self._trace(comp.name, mount, DecisionKind.ALLOW,
-                            {"handler_error": repr(e)})
-                continue
-            try:
-                validate_decision(comp.cls, comp.mount, decision.kind)
-            except ComponentPolicyError as e:
-                self._trace(comp.name, mount, decision.kind,
-                            {"policy_error": str(e)})
-                continue
+    def emit(self, event_name: str, ctx: ComponentContext) -> None:
+        """New event-driven entry. Tier-1 events without a Mount alias call
+        this directly; legacy mount-aligned events route through `dispatch`."""
+        self._core.emit(event_name, ctx)
 
-            kind = decision.kind
-            if kind is DecisionKind.ALLOW:
-                self._trace(comp.name, mount, kind, {})
-                continue
-            if kind is DecisionKind.INJECT_CONTEXT:
-                text = str(decision.payload or "")
-                if mount in (Mount.SESSION_START, Mount.PRE_PROMPT_BUILD):
-                    ctx.system_prompt = (ctx.system_prompt + "\n\n" + text).strip()
-                else:
-                    ctx.shared.setdefault("post_llm_inject", []).append(text)
-                self._trace(comp.name, mount, kind, {"chars": len(text)})
-            elif kind is DecisionKind.REWRITE:
-                payload = decision.payload
-                if mount is Mount.PRE_PROMPT_BUILD:
-                    ctx.user_prompt = str(payload or "")
-                elif mount is Mount.PRE_LLM_TURN:
-                    if isinstance(payload, list):
-                        ctx.messages = list(payload)
-                elif mount is Mount.POST_LLM_RESPONSE:
-                    ctx.raw_response = str(payload or "")
-                elif mount is Mount.PRE_TOOL_USE:
-                    if isinstance(payload, dict):
-                        ctx.current_tool_args = dict(payload)
-                elif mount is Mount.POST_TOOL_USE:
-                    ctx.current_tool_result_str = str(payload or "")
-                elif mount is Mount.PRE_FINAL_EMIT:
-                    ctx.final_output = "" if payload is None else str(payload)
-                self._trace(comp.name, mount, kind, {})
-            elif kind is DecisionKind.BLOCK:
-                if mount is Mount.PRE_TOOL_USE:
-                    ctx.shared["skip_current_tool"] = True
-                    ctx.shared["skip_current_tool_reason"] = (
-                        decision.reason or f"{comp.name}: block"
-                    )
-                    self._trace(comp.name, mount, kind,
-                                {"reason": ctx.shared["skip_current_tool_reason"]})
-                else:
-                    ctx.blocked = True
-                    ctx.blocked_reason = decision.reason or f"{comp.name}: block"
-                    self._trace(comp.name, mount, kind,
-                                {"reason": ctx.blocked_reason})
+    def wire_capabilities(self, ctx: ComponentContext) -> None:
+        """Phase C: attach per-task capability implementations.
+
+        - ctx.chat → agent.llm.chat (locked SUT model)
+        - ctx.emit → re-enter this same dispatcher (with depth cap)
+        - ctx.fetch / ctx.read_file intentionally None in v1 (declared in
+          Capability enum but not yet sandbox-wired).
+        """
+        ctx._impl_chat = _make_chat_impl()
+        ctx._impl_emit = lambda name, fields: self._core.emit(name, ctx)
 
 
 def _coerce_active_names(workflow: Workflow) -> set[str]:

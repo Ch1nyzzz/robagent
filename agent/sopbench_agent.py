@@ -183,6 +183,13 @@ class SopBenchAgent(BaseAgent):
                 user_prompt=_build_user_prompt(task),
             )
             ctx.executed_tool_calls = executed_tool_calls
+            # Phase C: wire ctx.chat / ctx.emit per the locked SUT model.
+            dispatcher.wire_capabilities(ctx)
+
+            # Tier-1 task_received: lifecycle anchor right after ctx construction.
+            dispatcher.emit("task_received", ctx)
+            if ctx.blocked:
+                return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
             # SESSION_START: static system_prompt injection only.
             dispatcher.dispatch(Mount.SESSION_START, ctx)
@@ -191,6 +198,16 @@ class SopBenchAgent(BaseAgent):
 
             # PRE_PROMPT_BUILD: can rewrite user_prompt or inject into system_prompt.
             dispatcher.dispatch(Mount.PRE_PROMPT_BUILD, ctx)
+            if ctx.blocked:
+                return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+            # Tier-1 alias for cross-sibling consistency.
+            dispatcher.emit("pre_context_build", ctx)
+            if ctx.blocked:
+                return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+
+            # Tier-1 pre_agent_construct: last chance to influence the inference
+            # request shape before messages list is sealed.
+            dispatcher.emit("pre_agent_construct", ctx)
             if ctx.blocked:
                 return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
@@ -217,6 +234,13 @@ class SopBenchAgent(BaseAgent):
                 if ctx.blocked:
                     return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
+                # Tier-1 pre_llm_request: anything that wants to react just
+                # before the SUT call (sub-LLM verifier prep, last-pass
+                # injection without rewriting `ctx.messages`).
+                dispatcher.emit("pre_llm_request", ctx)
+                if ctx.blocked:
+                    return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+
                 resp = chat(
                     ctx.messages,
                     tools=oai_tools if oai_tools else None,
@@ -239,6 +263,22 @@ class SopBenchAgent(BaseAgent):
                 dispatcher.dispatch(Mount.POST_LLM_RESPONSE, ctx)
                 if ctx.blocked:
                     return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+                # Tier-1 post_llm_response_raw + synthesised failure-mode events.
+                dispatcher.emit("post_llm_response_raw", ctx)
+                if ctx.blocked:
+                    return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+                if finish_reason == "length":
+                    dispatcher.emit("on_length_truncation", ctx)
+                    if ctx.blocked:
+                        return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+                if not (ctx.raw_response or "").strip():
+                    dispatcher.emit("on_empty_response", ctx)
+                    if ctx.blocked:
+                        return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+                if not tcs:
+                    dispatcher.emit("on_no_tool_call_emitted", ctx)
+                    if ctx.blocked:
+                        return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
                 # If a component REWROTE raw_response and there are no tool
                 # calls, treat the rewritten content as final.
@@ -259,6 +299,18 @@ class SopBenchAgent(BaseAgent):
                     ctx.current_tool_result_str = ""
                     ctx.current_tool_success = True
                     ctx.current_tool_error = None
+
+                    # Tier-1 pre_tool_arg_validation: narrow phase for
+                    # deterministic schema / cross-arg consistency checks
+                    # before the main PRE_TOOL_USE class×event matrix runs.
+                    dispatcher.emit("pre_tool_arg_validation", ctx)
+                    if ctx.blocked:
+                        return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+                    if ctx.shared.get("skip_current_tool"):
+                        # An arg-validator component decided to skip; fall
+                        # through to the existing skip-handling branch below
+                        # without re-emitting PRE_TOOL_USE.
+                        pass
 
                     dispatcher.dispatch(Mount.PRE_TOOL_USE, ctx)
                     if ctx.blocked:
@@ -299,6 +351,14 @@ class SopBenchAgent(BaseAgent):
                     dispatcher.dispatch(Mount.POST_TOOL_USE, ctx)
                     if ctx.blocked:
                         return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+                    # Tier-1 post_tool_result_raw + on_tool_error.
+                    dispatcher.emit("post_tool_result_raw", ctx)
+                    if ctx.blocked:
+                        return self._blocked_result(ctx, trace_lines, executed_tool_calls)
+                    if not ctx.current_tool_success:
+                        dispatcher.emit("on_tool_error", ctx)
+                        if ctx.blocked:
+                            return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
                     executed_tool_calls.append({
                         "tool": name,
@@ -316,6 +376,11 @@ class SopBenchAgent(BaseAgent):
                 # Loop exhausted without a tool-free assistant response.
                 final_content = ctx.raw_response or "(max_iterations exhausted without final output)"
                 trace_lines.append("[warn] max_iterations exhausted")
+                # Tier-1 on_explicit_terminate: an exit-gate component may
+                # block emission entirely (e.g. require an XML answer tag).
+                dispatcher.emit("on_explicit_terminate", ctx)
+                if ctx.blocked:
+                    return self._blocked_result(ctx, trace_lines, executed_tool_calls)
 
             ctx.final_output = final_content
             dispatcher.dispatch(Mount.PRE_FINAL_EMIT, ctx)

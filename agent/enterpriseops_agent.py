@@ -132,6 +132,11 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
             if ctx.messages and ctx.messages is not messages:
                 messages = list(ctx.messages)
 
+            # Tier-1 pre_llm_request: react just before the SUT call.
+            disp.emit("pre_llm_request", ctx)
+            if ctx.blocked:
+                break
+
             # LLM call -----------------------------------------------------
             response = await self.llm_client.invoke_with_tools(
                 messages, self.available_tools
@@ -164,9 +169,30 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
             disp.dispatch(Mount.POST_LLM_RESPONSE, ctx)
             if ctx.blocked:
                 break
+            # Tier-1 post_llm_response_raw + synthesised failure-mode events.
+            disp.emit("post_llm_response_raw", ctx)
+            if ctx.blocked:
+                break
+            if ctx.finish_reason == "length":
+                disp.emit("on_length_truncation", ctx)
+                if ctx.blocked:
+                    break
+            if not (ctx.raw_response or "").strip():
+                disp.emit("on_empty_response", ctx)
+                if ctx.blocked:
+                    break
+            if not response_tool_calls:
+                disp.emit("on_no_tool_call_emitted", ctx)
+                if ctx.blocked:
+                    break
 
             # No tool calls → done (parity with upstream).
             if not response_tool_calls:
+                # Tier-1 on_explicit_terminate: a gate component may BLOCK
+                # the final emission (e.g. require a verifier-friendly tag).
+                disp.emit("on_explicit_terminate", ctx)
+                if ctx.blocked:
+                    break
                 break
 
             # Per-tool-call loop -------------------------------------------
@@ -185,6 +211,13 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                 ctx.current_tool_server = self.tool_to_server_mapping.get(
                     tool_name, ""
                 )
+
+                # Tier-1 pre_tool_arg_validation: narrow phase for
+                # deterministic schema / cross-arg consistency checks
+                # before the main PRE_TOOL_USE class×event matrix fires.
+                disp.emit("pre_tool_arg_validation", ctx)
+                if ctx.blocked:
+                    break
 
                 # PRE_TOOL_USE ---------------------------------------------
                 disp.dispatch(Mount.PRE_TOOL_USE, ctx)
@@ -235,6 +268,14 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                 disp.dispatch(Mount.POST_TOOL_USE, ctx)
                 if ctx.blocked:
                     break
+                # Tier-1 post_tool_result_raw + on_tool_error.
+                disp.emit("post_tool_result_raw", ctx)
+                if ctx.blocked:
+                    break
+                if not ctx.current_tool_success:
+                    disp.emit("on_tool_error", ctx)
+                    if ctx.blocked:
+                        break
 
                 # Append the (possibly rewritten) tool result back to the messages.
                 messages.append(ToolMessage(
@@ -343,16 +384,30 @@ async def run_task(
         system_prompt=task_config_dict.get("system_prompt", ""),
         user_prompt=task_config_dict.get("user_prompt", ""),
     )
+    # Phase C: wire ctx.chat / ctx.emit for the locked SUT model.
+    disp.wire_capabilities(ctx)
+
+    # Tier-1 task_received: lifecycle anchor before any mount fires.
+    disp.emit("task_received", ctx)
+    if ctx.blocked:
+        return _blocked_result(domain, task_id, ctx)
 
     # SESSION_START -----------------------------------------------------
     disp.dispatch(Mount.SESSION_START, ctx)
-    # If a component BLOCK'd here we still need to return a structured result
-    # so the runner can record it as an error.
     if ctx.blocked:
         return _blocked_result(domain, task_id, ctx)
 
     # PRE_PROMPT_BUILD --------------------------------------------------
     disp.dispatch(Mount.PRE_PROMPT_BUILD, ctx)
+    if ctx.blocked:
+        return _blocked_result(domain, task_id, ctx)
+    # Tier-1 pre_context_build alias for cross-sibling consistency.
+    disp.emit("pre_context_build", ctx)
+    if ctx.blocked:
+        return _blocked_result(domain, task_id, ctx)
+    # Tier-1 pre_agent_construct: last chance to influence the inference
+    # request shape before the BenchmarkConfig + orchestrator are sealed.
+    disp.emit("pre_agent_construct", ctx)
     if ctx.blocked:
         return _blocked_result(domain, task_id, ctx)
 
@@ -385,6 +440,8 @@ async def run_task(
     if runs:
         ctx.final_output = (runs[0].get("final_response") or "")[:8000]
     disp.dispatch(Mount.PRE_FINAL_EMIT, ctx)
+    # Mount.SESSION_END dispatches via mount.value = "session_end" which is
+    # the same string as the Tier-1 event, so only one emit is needed.
     disp.dispatch(Mount.SESSION_END, ctx)
 
     # Surface any component side-channel state into the result for downstream
