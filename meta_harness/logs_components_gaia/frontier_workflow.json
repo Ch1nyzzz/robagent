@@ -1,0 +1,10 @@
+{
+  "workflow_yaml_at_accept": "nodes:\n  - length_recovery_guard\n  - gaia_file_channel\n  - cuneiform_numeric_decoder\nedges: []\ndisabled: []\n",
+  "active_names": [
+    "length_recovery_guard",
+    "gaia_file_channel",
+    "cuneiform_numeric_decoder"
+  ],
+  "accepted_at_iteration": 7,
+  "accepted_at": "2026-05-24T21:45:28.530697+00:00"
+}

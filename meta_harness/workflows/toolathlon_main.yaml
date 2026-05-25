@@ -1,3 +1,4 @@
-nodes: []
+nodes:
+  - component_iter4_artifact_first_then_terminate
 edges: []
 disabled: []

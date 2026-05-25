@@ -1,6 +1,8 @@
 {
-  "workflow_yaml_at_accept": "nodes: []\nedges: []\ndisabled: []\n",
-  "active_names": [],
-  "accepted_at_iteration": 0,
-  "accepted_at": "2026-05-24T08:40:15.899863+00:00"
+  "workflow_yaml_at_accept": "nodes:\n  - component_iter4_artifact_first_then_terminate\nedges: []\ndisabled: []\n",
+  "active_names": [
+    "component_iter4_artifact_first_then_terminate"
+  ],
+  "accepted_at_iteration": 4,
+  "accepted_at": "2026-05-25T00:34:22.213061+00:00"
 }
