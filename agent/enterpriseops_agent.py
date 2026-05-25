@@ -125,7 +125,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
 
             # PRE_LLM_TURN -------------------------------------------------
             ctx.messages = list(messages)
-            disp.dispatch(Mount.PRE_LLM_TURN, ctx)
+            disp.emit(Mount.PRE_LLM_TURN.value, ctx, sync_mount=Mount.PRE_LLM_TURN)
             if ctx.blocked:
                 break
             # Component may have REWRITTEN messages.
@@ -166,7 +166,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                 for tc in response_tool_calls
             ]
             ctx.finish_reason = str(response_metadata.get("finish_reason", ""))
-            disp.dispatch(Mount.POST_LLM_RESPONSE, ctx)
+            disp.emit(Mount.POST_LLM_RESPONSE.value, ctx, sync_mount=Mount.POST_LLM_RESPONSE)
             if ctx.blocked:
                 break
             # Tier-1 post_llm_response_raw + synthesised failure-mode events.
@@ -220,7 +220,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                     break
 
                 # PRE_TOOL_USE ---------------------------------------------
-                disp.dispatch(Mount.PRE_TOOL_USE, ctx)
+                disp.emit(Mount.PRE_TOOL_USE.value, ctx, sync_mount=Mount.PRE_TOOL_USE)
                 if ctx.blocked:
                     break
 
@@ -265,7 +265,7 @@ class EnterpriseOpsReactOrchestrator(ReactOrchestrator):
                 })
 
                 # POST_TOOL_USE --------------------------------------------
-                disp.dispatch(Mount.POST_TOOL_USE, ctx)
+                disp.emit(Mount.POST_TOOL_USE.value, ctx, sync_mount=Mount.POST_TOOL_USE)
                 if ctx.blocked:
                     break
                 # Tier-1 post_tool_result_raw + on_tool_error.
@@ -393,12 +393,12 @@ async def run_task(
         return _blocked_result(domain, task_id, ctx)
 
     # SESSION_START -----------------------------------------------------
-    disp.dispatch(Mount.SESSION_START, ctx)
+    disp.emit(Mount.SESSION_START.value, ctx, sync_mount=Mount.SESSION_START)
     if ctx.blocked:
         return _blocked_result(domain, task_id, ctx)
 
     # PRE_PROMPT_BUILD --------------------------------------------------
-    disp.dispatch(Mount.PRE_PROMPT_BUILD, ctx)
+    disp.emit(Mount.PRE_PROMPT_BUILD.value, ctx, sync_mount=Mount.PRE_PROMPT_BUILD)
     if ctx.blocked:
         return _blocked_result(domain, task_id, ctx)
     # Tier-1 pre_context_build alias for cross-sibling consistency.
@@ -439,10 +439,10 @@ async def run_task(
     runs = result.get("runs") or []
     if runs:
         ctx.final_output = (runs[0].get("final_response") or "")[:8000]
-    disp.dispatch(Mount.PRE_FINAL_EMIT, ctx)
+    disp.emit(Mount.PRE_FINAL_EMIT.value, ctx, sync_mount=Mount.PRE_FINAL_EMIT)
     # Mount.SESSION_END dispatches via mount.value = "session_end" which is
     # the same string as the Tier-1 event, so only one emit is needed.
-    disp.dispatch(Mount.SESSION_END, ctx)
+    disp.emit(Mount.SESSION_END.value, ctx, sync_mount=Mount.SESSION_END)
 
     # Surface any component side-channel state into the result for downstream
     # inspection (does not affect verifier outcome).

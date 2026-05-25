@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import random
 import threading
@@ -13,7 +14,10 @@ from openai import OpenAI
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-# DeepSeek official API (OpenAI-compatible). Models: deepseek-v4-pro | deepseek-v4-flash.
+# Target/inference model is FIXED per benchmark run (the SUT). Endpoint and
+# model name come from env (MODEL_NAME, DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY).
+# Components MUST NOT override the model argument on chat() — chat() enforces
+# this at call time (see _enforce_target_model below).
 DEFAULT_MODEL = os.environ.get("MODEL_NAME", "deepseek-v4-pro")
 _API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 _BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
@@ -34,6 +38,8 @@ _MAX_WALL_SECONDS = float(os.environ.get("LLM_MAX_WALL_SECONDS", "480"))
 _PER_CALL_TIMEOUT = float(os.environ.get("LLM_PER_CALL_TIMEOUT", "150"))
 # Max number of API attempts for transient errors (each gated by the queue)
 _MAX_API_ATTEMPTS = int(os.environ.get("LLM_MAX_API_ATTEMPTS", "10"))
+# Default completion budget per chat() call; overridable via env.
+_DEFAULT_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
 
 # Shared cooldown when the provider returns 429. All threads wait until this
 # moment before attempting another call; reset opportunistically.
@@ -133,12 +139,44 @@ def _is_transient_error(exc: BaseException) -> bool:
     return any(k in msg for k in ("timeout", "timed out", "connection", "502", "503", "504"))
 
 
+def _extract_tool_calls(message: Any) -> list[dict[str, Any]] | None:
+    """Normalize OpenAI tool_calls into a JSON-serializable list.
+
+    Returns a list of {id, name, arguments(dict)} entries, or None if the
+    assistant message has no tool calls. `arguments` is parsed from the
+    JSON string the API returns; if parsing fails, it is kept as the raw
+    string under the key `arguments_raw` so the caller can decide what to
+    do with malformed model output.
+    """
+    raw = getattr(message, "tool_calls", None)
+    if not raw:
+        return None
+    out: list[dict[str, Any]] = []
+    for tc in raw:
+        fn = getattr(tc, "function", None)
+        name = getattr(fn, "name", None) if fn else None
+        args_str = getattr(fn, "arguments", "") if fn else ""
+        entry: dict[str, Any] = {
+            "id": getattr(tc, "id", None),
+            "name": name,
+            "arguments_raw": args_str,
+        }
+        try:
+            entry["arguments"] = json.loads(args_str) if args_str else {}
+        except json.JSONDecodeError:
+            entry["arguments"] = None
+        out.append(entry)
+    return out
+
+
 def chat(
     messages: list[dict[str, Any]],
     *,
     model: str = DEFAULT_MODEL,
     temperature: float = 0.0,
-    max_tokens: int = 2048,
+    max_tokens: int = _DEFAULT_MAX_TOKENS,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Call the upstream chat model with strict rate-limit gating.
 
@@ -148,30 +186,49 @@ def chat(
       jittered backoff. Each retry re-acquires a fresh slot.
     - Never raises a tenacity RetryError wrapper — surfaces the underlying
       exception so callers / traces see the real cause.
+
+    Model is LOCKED to DEFAULT_MODEL (set via MODEL_NAME env). Passing a
+    different `model` raises RuntimeError: the target model is the SUT and
+    cannot be varied mid-experiment, by any component.
+
+    Tool use (v12+):
+    - `tools` accepts OpenAI-style tool specs (list of
+      {"type": "function", "function": {"name", "description", "parameters"}}).
+    - When tools are provided, the assistant response may contain
+      `tool_calls`. The returned dict includes a `tool_calls` field
+      (None if no tool calls), and an `assistant_message` field shaped
+      for round-tripping back into the next `messages` list.
     """
+    if model != DEFAULT_MODEL:
+        raise RuntimeError(
+            f"chat() model is locked to '{DEFAULT_MODEL}' (set via MODEL_NAME); "
+            f"got model='{model}'. Components must not override the target model."
+        )
     estimate = _estimate_token_cost(messages, max_tokens)
     start = time.monotonic()
     deadline = start + _MAX_WALL_SECONDS
     last_exc: BaseException | None = None
+    create_kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if tools:
+        create_kwargs["tools"] = tools
+        if tool_choice is not None:
+            create_kwargs["tool_choice"] = tool_choice
     for attempt in range(1, _MAX_API_ATTEMPTS + 1):
         _wait_for_cooldown(deadline)
         _acquire_rate_slot(token_estimate=estimate, deadline=deadline)
         try:
             resp = _client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+                **create_kwargs,
                 timeout=_PER_CALL_TIMEOUT,
             )
         except TypeError:
             # Older SDKs may not accept `timeout=` kwarg; retry without it.
-            resp = _client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            resp = _client.chat.completions.create(**create_kwargs)
         except BaseException as e:
             last_exc = e
             if attempt >= _MAX_API_ATTEMPTS:
@@ -197,10 +254,27 @@ def chat(
         actual = getattr(usage, "total_tokens", None) if usage else None
         if actual:
             _record_actual_token_usage(int(actual))
+        content = choice.message.content or ""
+        tool_calls = _extract_tool_calls(choice.message)
+        assistant_message: dict[str, Any] = {"role": "assistant", "content": content}
+        if tool_calls:
+            assistant_message["tool_calls"] = [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": tc["arguments_raw"],
+                    },
+                }
+                for tc in tool_calls
+            ]
         return {
             "model": model,
-            "content": choice.message.content or "",
+            "content": content,
             "finish_reason": choice.finish_reason,
+            "tool_calls": tool_calls,
+            "assistant_message": assistant_message,
             "usage": {
                 "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
                 "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,

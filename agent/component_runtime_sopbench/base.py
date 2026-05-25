@@ -222,20 +222,18 @@ class Dispatcher:
 
     # --- dispatch ---------------------------------------------------------
 
-    def dispatch(self, mount: Mount, ctx: ComponentContext) -> None:
-        """Backward-compat surface: fire components subscribed to `mount.value`.
-
-        Replaced internally by `core.Dispatcher.emit(mount.value, ctx)`. The
-        ctx.mount sync + the PRE_TOOL_USE skip-flag reset stay here because
-        sopbench_agent reads ctx.mount in some matchers."""
-        ctx.mount = mount
-        if mount is Mount.PRE_TOOL_USE:
-            ctx.shared.pop("skip_current_tool", None)
-        self._core.emit(mount.value, ctx)
-
-    def emit(self, event_name: str, ctx: ComponentContext) -> None:
-        """New event-driven entry. Tier-1 events without a Mount alias call
-        this directly; legacy mount-aligned events route through `dispatch`."""
+    def emit(self, event_name: str, ctx: ComponentContext,
+             *, sync_mount: Optional[Mount] = None) -> None:
+        """Unified dispatch entry. Both legacy mount-aligned events
+        (caller passes `event_name=Mount.X.value`, `sync_mount=Mount.X`)
+        and Tier-1 events (caller passes the event-name string, no
+        sync_mount) route here. `sync_mount` updates `ctx.mount` so
+        legacy matchers reading `ctx.mount` see the right value; the
+        PRE_TOOL_USE skip-flag reset stays attached to its mount."""
+        if sync_mount is not None:
+            ctx.mount = sync_mount
+            if sync_mount is Mount.PRE_TOOL_USE:
+                ctx.shared.pop("skip_current_tool", None)
         self._core.emit(event_name, ctx)
 
     def wire_capabilities(self, ctx: ComponentContext) -> None:

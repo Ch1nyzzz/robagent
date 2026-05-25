@@ -34,7 +34,7 @@ Your job is to pick ONE such mechanism present in ≥3 train failures and add ON
 
 ## v2 mount semantics (read this carefully)
 
-Toolathlon v2 wraps every MCP tool as an SDK FunctionTool before handing it to the Agent. This lets the component runtime intercept BEFORE and AFTER the real tool invocation with the actual arguments and the actual result string — solving the single-turn limitations of v1. (Set `COMPONENT_WRAP_TOOLS=0` to fall back to v1 path; not recommended.)
+Toolathlon v2 wraps every MCP tool as an SDK FunctionTool before handing it to the Agent. This lets the component runtime intercept BEFORE and AFTER the real tool invocation with the actual arguments and the actual result string — solving the single-turn limitations of v1. (The v1 no-args fallback path has been removed; tool wrapping is now mandatory.)
 
 | mount               | when it fires                                                 | dispatched? | what works                                                                                                                                                       |
 |---------------------|---------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|

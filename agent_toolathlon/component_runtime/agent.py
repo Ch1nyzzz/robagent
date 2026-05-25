@@ -39,15 +39,6 @@ from .types import Component, Mount
 from .workflow import Workflow
 
 
-def _wrap_tools_enabled() -> bool:
-    """v2 MCP tool wrapping is enabled by default for `cr` candidate.
-    Set COMPONENT_WRAP_TOOLS=0 to fall back to the v1 path (mcp_servers
-    given directly to Agent; PRE_TOOL_USE REWRITE / true BLOCK and
-    single-turn POST_TOOL_USE inject become unavailable)."""
-    v = os.environ.get("COMPONENT_WRAP_TOOLS", "1").strip().lower()
-    return v not in ("", "0", "false", "no", "off")
-
-
 ROOT = Path(__file__).resolve().parents[2]   # robagent/
 
 
@@ -163,5 +154,5 @@ def build_agent(
         cr_components_by_mount=by_mount,
         cr_session_state=session_state,
         cr_dispatcher=dispatcher,
-        cr_wrap_tools=_wrap_tools_enabled(),
+        cr_wrap_tools=True,                  # v2-only; v1 path removed
     )

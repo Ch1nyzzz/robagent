@@ -2,20 +2,16 @@
 
 Same five classes as tau2; matrix carries v2's relaxations:
 
-  * `PRE_TOOL_USE`: with COMPONENT_WRAP_TOOLS=1 (cr default) MCP tools are
-    wrapped as SDK FunctionTools and we see the real arguments before
-    the invocation — so REWRITE_TOOL_ARGS and true BLOCK are now
-    admitted. `DEFER` requires a replay queue and is still rejected (v2.5).
+  * `PRE_TOOL_USE`: MCP tools are wrapped as SDK FunctionTools (the v2
+    path, now mandatory — the v1 no-args fallback was removed during
+    the event-runtime cleanup), so REWRITE_TOOL_ARGS and true BLOCK
+    are admitted. `DEFER` requires a replay queue and is still
+    rejected (v2.5).
   * `POST_LLM_RESPONSE`: SDK does not emit a mid-turn AssistantMessage
     hook carrying its `tool_calls`. The sub-LLM verifier pattern that
     POST_LLM_RESPONSE was designed for is therefore not implementable
     via lifecycle hooks; the entire mount column is rejected. v3 would
     require wrapping the ModelProvider — out of scope for v2.
-
-If a candidate runs with COMPONENT_WRAP_TOOLS=0 (legacy v1 path), the
-PRE_TOOL_USE REWRITE_TOOL_ARGS decisions admitted here will SILENTLY NOT
-FIRE — the v1 AgentHooks dispatcher has no args. Use wrap mode for any
-component that depends on REWRITE_TOOL_ARGS.
 
 `STOP` / `SESSION_END` are also reserved (declared in Mount, not yet
 dispatched by `agent.py`). They are allowed at registration so a

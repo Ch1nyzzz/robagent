@@ -253,60 +253,6 @@ class ComponentDispatcher:
         ctx._impl_chat = _make_chat_impl()
         ctx._impl_emit = lambda name, payload: self._core.emit(name, ctx)
 
-    # ---- v1 surface (no args; advisory BLOCK only) ----------------------
-
-    def fire_pre_tool_use(self, shared: dict, tool: Any) -> None:
-        """SDK on_tool_start: arguments NOT available. We can only match
-        by tool name. ALLOW = no-op. BLOCK = advisory inject for next
-        turn (see file docstring)."""
-        comps = self._by_mount.get(Mount.PRE_TOOL_USE, [])
-        if not comps:
-            return
-        tool_name = getattr(tool, "name", None) or str(tool)
-        tool_proxy = {"name": tool_name, "arguments": {}}
-        for comp in comps:
-            ctx = self._ctx(
-                Mount.PRE_TOOL_USE,
-                shared,
-                tool_call=tool_proxy,
-            )
-            if comp.matcher is not None and not comp.matcher(ctx):
-                continue
-            decision = comp.handler(ctx)
-            validate_decision(comp.cls, comp.mount, decision.kind)
-            _trace(comp.name, comp.mount, decision.kind, {"tool": tool_name})
-            if decision.kind is DecisionKind.ALLOW:
-                continue
-            if decision.kind is DecisionKind.BLOCK:
-                _queue_post_tool_use_text(
-                    shared,
-                    f"<component_block component={comp.name} tool={tool_name}>\n"
-                    f"This tool call should not have been made. "
-                    f"Component reason: {decision.reason or '(no reason given)'}\n"
-                    f"Do not call this tool again with the same pattern."
-                    f"\n</component_block>",
-                )
-
-    def fire_post_tool_use(self, shared: dict, tool: Any, result: str) -> None:
-        comps = self._by_mount.get(Mount.POST_TOOL_USE, [])
-        if not comps:
-            return
-        tool_name = getattr(tool, "name", None) or str(tool)
-        incoming = {"tool_name": tool_name, "output": result}
-        for comp in comps:
-            ctx = self._ctx(
-                Mount.POST_TOOL_USE,
-                shared,
-                incoming_message=incoming,
-            )
-            if comp.matcher is not None and not comp.matcher(ctx):
-                continue
-            decision = comp.handler(ctx)
-            validate_decision(comp.cls, comp.mount, decision.kind)
-            _trace(comp.name, comp.mount, decision.kind, {"tool": tool_name})
-            if decision.kind is DecisionKind.INJECT_CONTEXT:
-                _queue_post_tool_use_text(shared, str(decision.payload))
-
     # ---- v2 surface (real args; returns Decision to wrapper) ------------
 
     def fire_pre_tool_use_with_args(
@@ -407,29 +353,19 @@ def _shared_from_ctx(context: Any) -> dict:
     return {}
 
 
-def _is_cr_wrapped(tool: Any) -> bool:
-    """Returns True if `tool` was produced by tool_wrappers.py; the
-    wrapper does its own dispatch with real args, so AgentHooks should
-    skip to avoid double-firing."""
-    return bool(getattr(tool, "_cr_wrapped", False))
-
-
 class ComponentAgentHooks(AgentHooks):
-    """Per-agent hooks. Set on `Agent(hooks=...)` inside `setup_agent`."""
+    """Per-agent SDK hooks placeholder. v2 dispatches PRE_TOOL_USE /
+    POST_TOOL_USE entirely inside `ComponentMCPToolWrapper` (see
+    `tool_wrappers.py`) with REAL args + result, so the SDK's
+    on_tool_start / on_tool_end have nothing left to do — they would
+    only see post-wrap FunctionTools without arguments and would
+    double-fire. This subclass keeps the SDK interface populated
+    without doing any work; new SDK lifecycle mounts that don't have a
+    wrapper-side equivalent (e.g. handoff) can override methods here."""
 
     def __init__(self, dispatcher: ComponentDispatcher):
         super().__init__()
         self._dispatcher = dispatcher
-
-    async def on_tool_start(self, context, agent, tool) -> None:
-        if _is_cr_wrapped(tool):
-            return  # v2 wrapper already dispatched with real args
-        self._dispatcher.fire_pre_tool_use(_shared_from_ctx(context), tool)
-
-    async def on_tool_end(self, context, agent, tool, result) -> None:
-        if _is_cr_wrapped(tool):
-            return  # v2 wrapper already dispatched and inlined any INJECT
-        self._dispatcher.fire_post_tool_use(_shared_from_ctx(context), tool, result)
 
 
 class ComponentRunHooks(RunHooks):
