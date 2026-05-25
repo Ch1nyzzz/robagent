@@ -36,6 +36,10 @@ from meta_harness.component_runtime_core.shared_types import (
     StateScope,
     Trust,
 )
+# Phase C: ComponentContext inherits EventContext for capability methods
+# (ctx.chat / ctx.emit / ctx.emit_upstream) and the shared cross-event
+# scratchpads. The dispatcher wires `_impl_*` at construction time.
+from meta_harness.component_runtime_core.event_context import EventContext
 
 
 # --- enums -------------------------------------------------------------------
@@ -118,18 +122,24 @@ class Decision:
 # --- context -----------------------------------------------------------------
 
 
-@dataclass
-class ComponentContext:
+@dataclass(kw_only=True)
+class ComponentContext(EventContext):
     """The argument passed to every Component matcher / handler.
 
-    A single ComponentContext is reused across all Components firing at
-    the same mount, so handlers may *read* `shared` but should not mutate
-    the runtime-owned fields (`tool_call`, `incoming_message`,
-    `assistant_message`, `history`).
+    Reused across components firing at the same mount/event. Handlers may
+    *read* `shared` but should not mutate the runtime-owned fields
+    (`tool_call`, `incoming_message`, `assistant_message`, `history`).
+
+    Inherits from EventContext (Phase C): `event`, `task_id`, `shared`,
+    `state`, `persistent_state`, `upstream`, `blocked`, `blocked_reason`,
+    plus `ctx.chat` / `ctx.emit` / `ctx.emit_upstream` capability methods.
+    `@dataclass(kw_only=True)` is required because EventContext has
+    default fields and the subclass adds non-default `mount`.
 
     Toolathlon notes:
-      * `tool_call.arguments` is always {} on PRE_TOOL_USE (SDK does not
-        surface arguments at on_tool_start). Use `tool_name` only.
+      * `tool_call.arguments` is always {} on PRE_TOOL_USE via SDK hook
+        (SDK does not surface arguments at on_tool_start). Use `tool_name`
+        only. The FunctionTool wrapper (v2) surfaces REAL arguments.
       * `incoming_message` on POST_TOOL_USE is the SDK ToolCallOutput
         item; the runtime exposes a thin dict with `tool_name` and
         `output` for matcher convenience.
@@ -142,8 +152,6 @@ class ComponentContext:
     domain_policy: str = ""
     tool_names: tuple[str, ...] = ()
     history: list = field(default_factory=list)  # task_agent.logs snapshot
-    shared: dict = field(default_factory=dict)   # cross-component scratchpad
-    state: dict = field(default_factory=dict)    # per-component name → state dict
 
     @property
     def tool_name(self) -> Optional[str]:

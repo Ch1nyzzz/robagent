@@ -609,6 +609,20 @@ class TaskAgent:
         agent_instructions = self._cr_build_instructions(
             base_instructions=self.task_config.system_prompts.agent,
         )
+        # Tier-1 pre_context_build: alias for the PRE_CONTEXT_BUILD phase
+        # (cross-sibling event vocabulary). INJECT_CONTEXT decisions land
+        # in `shared_context['tier1_prompt_inject']` and are appended to
+        # `agent_instructions` below.
+        if self._cr_dispatcher is not None:
+            from .types import Mount as _CrMount  # local import to avoid top-level coupling
+            _t1_ctx = self._cr_dispatcher.make_tier1_ctx(
+                "pre_context_build", _CrMount.PRE_CONTEXT_BUILD,
+                self.shared_context,
+                proposed_system_prompt=agent_instructions,
+            )
+            self._cr_dispatcher.emit("pre_context_build", _t1_ctx)
+            for fragment in (self.shared_context.pop("tier1_prompt_inject", []) or []):
+                agent_instructions = agent_instructions + "\n\n" + str(fragment)
 
         # v2: tool-wrapping branch. With cr_wrap_tools=True we expose
         # every MCP tool as an SDK FunctionTool whose `on_invoke_tool`
@@ -633,6 +647,20 @@ class TaskAgent:
             )
         else:
             mcp_servers_arg = [*self.mcp_manager.get_all_connected_servers()]
+
+        # Tier-1 pre_agent_construct: last chance to influence the
+        # request shape before the SDK Agent is sealed. INJECT_CONTEXT
+        # fragments append to agent_instructions for this final time.
+        if self._cr_dispatcher is not None:
+            from .types import Mount as _CrMount
+            _pac_ctx = self._cr_dispatcher.make_tier1_ctx(
+                "pre_agent_construct", _CrMount.SESSION_START,
+                self.shared_context,
+                proposed_system_prompt=agent_instructions,
+            )
+            self._cr_dispatcher.emit("pre_agent_construct", _pac_ctx)
+            for fragment in (self.shared_context.pop("tier1_prompt_inject", []) or []):
+                agent_instructions = agent_instructions + "\n\n" + str(fragment)
 
         self.agent = Agent(
             name="Assistant",
@@ -711,6 +739,17 @@ class TaskAgent:
         # Use a fixed session_id
         self.session_id = f"task_{self.task_config.id}_session"
         self.history_dir = os.path.join(abs_original_task_root, "conversation_history")
+
+        # Tier-1 task_received: lifecycle anchor at the start of the
+        # interaction loop. Components subscribed here see the freshly
+        # constructed agent but have not yet seen the first user turn.
+        if self._cr_dispatcher is not None:
+            from .types import Mount as _CrMount
+            _tr_ctx = self._cr_dispatcher.make_tier1_ctx(
+                "task_received", _CrMount.SESSION_START,
+                self.shared_context,
+            )
+            self._cr_dispatcher.emit("task_received", _tr_ctx)
 
         # we need a condition here, only when we use `openai_stateful_responses` as the provider we set
         if self.agent_config.model.provider == "openai_stateful_responses":
@@ -952,16 +991,56 @@ class TaskAgent:
                     self.usage.add(raw_response.usage)
                     self.stats["agent_llm_requests"] += 1
 
+                # Tier-1 post_llm_response_raw + synthesised on_length_truncation /
+                # on_empty_response. Inspects `result.raw_responses` for the
+                # final assistant response shape (the SDK Runner has already
+                # consumed the per-turn hooks; this is the post-Runner anchor).
+                if self._cr_dispatcher is not None:
+                    from .types import Mount as _CrMount
+                    _final_text = (result.final_output or "").strip()
+                    _last_finish = ""
+                    if result.raw_responses:
+                        _last_finish = str(
+                            getattr(result.raw_responses[-1], "finish_reason", "") or ""
+                        )
+                    _plr_ctx = self._cr_dispatcher.make_tier1_ctx(
+                        "post_llm_response_raw", _CrMount.POST_TOOL_USE,
+                        self.shared_context,
+                        assistant_message=result.final_output,
+                    )
+                    self._cr_dispatcher.emit("post_llm_response_raw", _plr_ctx)
+                    if _last_finish == "length":
+                        self._cr_dispatcher.emit("on_length_truncation", _plr_ctx)
+                    if not _final_text:
+                        self._cr_dispatcher.emit("on_empty_response", _plr_ctx)
+
                 self.logs = self.build_new_logs(result.input, result.new_items, server_conversation_tracker)
-                
+
                 self.user_simulator.receive_message(result.final_output)
-                
+
                 # Process agent response to get any recent tool calls
                 recent_tool_calls = await self.process_agent_response(result)
-                
+
                 # Check for termination on assistant response
                 if self.termination_checker(result.final_output, recent_tool_calls, 'agent'):
                     self._debug_print("Termination condition met by agent response")
+                    # Tier-1 on_explicit_terminate: an artifact-gate component
+                    # may BLOCK the termination (e.g. verify workspace file exists).
+                    if self._cr_dispatcher is not None:
+                        from .types import Mount as _CrMount
+                        _term_ctx = self._cr_dispatcher.make_tier1_ctx(
+                            "on_explicit_terminate", _CrMount.STOP,
+                            self.shared_context,
+                            assistant_message=result.final_output,
+                        )
+                        self._cr_dispatcher.emit("on_explicit_terminate", _term_ctx)
+                        if _term_ctx.blocked:
+                            # Component refused termination: log + continue loop.
+                            self._debug_print(
+                                f"[cr] on_explicit_terminate BLOCK by component: "
+                                f"{_term_ctx.blocked_reason}"
+                            )
+                            continue
                     break
                 
                 # Save checkpoints periodically
@@ -1025,6 +1104,16 @@ class TaskAgent:
     
     async def save_results(self) -> None:
         """Write results to log file."""
+        # Tier-1 session_end: terminal bookkeeping. Decisions are ALLOW-only
+        # per policy — there is nothing left to rewrite at this point.
+        if self._cr_dispatcher is not None:
+            from .types import Mount as _CrMount
+            _se_ctx = self._cr_dispatcher.make_tier1_ctx(
+                "session_end", _CrMount.SESSION_END,
+                self.shared_context,
+            )
+            self._cr_dispatcher.emit("session_end", _se_ctx)
+
         res_log_file = self.task_config.log_file
         
         if not os.path.exists(os.path.dirname(res_log_file)):
