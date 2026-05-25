@@ -152,6 +152,7 @@ Plus a JSON snapshot `meta_harness/logs_components_sopbench_<domain>/frontier_wo
 - **You do NOT run benchmarks.** No `run_sopbench_baseline.py`, no `evaluate()`. The outer loop scores.
 - **No task-specific code.** No domain-specific entity names in matchers (no chemical IDs, partner IDs, PO numbers). No encoded gold answers.
 - **The target inference model is LOCKED.** It is the System Under Test. Do NOT pass a `model=` kwarg to `chat()` and do NOT call any other model API. `agent.llm.chat()` enforces this at call time — passing any model other than `DEFAULT_MODEL` raises `RuntimeError`. (No flash/lite/cheaper-variant fallbacks. No second-opinion calls to a different model.)
+- **`ctx.chat()` (Phase C+) is permitted for sub-LLM verifier / re-format / critic patterns** — it goes through the SAME locked SUT model with mutable inference params: `ctx.chat(messages, max_tokens=8192, temperature=0.0, system_override=None, tools=None)`. The helper does NOT accept a `model=` kwarg (impossible by signature). Declaring `capabilities=(Capability.LLM_CALL,)` is required for any component that calls it.
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
   cp agent/components_sopbench_<domain>/<existing>.py agent/components_sopbench_<domain>/<existing>.py.bak_iter<N>
@@ -260,6 +261,101 @@ For `disable_node`, omit `file` and the only `name` is the existing component's 
    "
    ```
 7. **Write `pending_eval.json`** and print `CANDIDATE: <name>`.
+
+## Event runtime additions (Phase D)
+
+The mount-based dispatch above remains the canonical entry — every existing
+component fires via `listens = mount.value` by default (auto-set in
+`Component.__post_init__`). Phase D adds a parallel **Tier-1 event** namespace
+that exposes finer per-turn / per-tool failure-mode signals the runtime
+observes.
+
+### Tier-1 events emitted by `SopBenchAgent.execute()`
+
+All 15 Tier-1 events fire in sopbench:
+
+| event                       | when it fires                                                         | mount alignment            |
+|-----------------------------|-----------------------------------------------------------------------|----------------------------|
+| `task_received`             | right after `ComponentContext` is built                                | (new — lifecycle anchor)   |
+| `session_start`             | static system_prompt injection                                         | = `Mount.SESSION_START`    |
+| `pre_prompt_build`          | per task, user/system prompt build                                     | = `Mount.PRE_PROMPT_BUILD` |
+| `pre_context_build`         | paired with `pre_prompt_build` (cross-sibling alias)                   | aliases `pre_prompt_build` |
+| `pre_agent_construct`       | last hook before the messages list is sealed                           | (new)                      |
+| `pre_llm_turn`              | per turn, before `chat()` call                                         | = `Mount.PRE_LLM_TURN`     |
+| `pre_llm_request`           | paired with `pre_llm_turn` (cross-sibling alias)                       | (new alias)                |
+| `post_llm_response`         | per turn, after `chat()` response                                      | = `Mount.POST_LLM_RESPONSE`|
+| `post_llm_response_raw`     | paired with `post_llm_response`                                        | aliases `post_llm_response`|
+| `on_length_truncation`      | **synthesised** when `finish_reason == "length"`                       | (new failure-mode event)   |
+| `on_empty_response`         | **synthesised** when `raw_response.strip() == ""`                      | (new failure-mode event)   |
+| `on_no_tool_call_emitted`   | **synthesised** when no tool_calls + content emitted                   | (new failure-mode event)   |
+| `pre_tool_arg_validation`   | per tool call, **before** `pre_tool_use` (narrow schema-check phase)   | (new)                      |
+| `pre_tool_use`              | per tool call, main pre-tool decision                                  | = `Mount.PRE_TOOL_USE`     |
+| `post_tool_use`             | per tool call, after invocation                                        | = `Mount.POST_TOOL_USE`    |
+| `post_tool_result_raw`      | per tool call, raw result anchor for downstream observers              | (new)                      |
+| `on_tool_error`             | **synthesised** when `current_tool_success == False`                   | (new failure-mode event)   |
+| `pre_final_emit`            | after the loop, before final output                                    | = `Mount.PRE_FINAL_EMIT`   |
+| `on_explicit_terminate`     | **synthesised** when max_iterations exhausts without final answer      | (new)                      |
+| `session_end`               | bookkeeping at end of task                                             | = `Mount.SESSION_END`      |
+
+### `Component.listens` and `emits` (Phase B)
+
+The `Component` dataclass gained two fields:
+
+```python
+COMPONENT = Component(
+    ...,
+    listens="on_tool_error",          # NEW; default = mount.value, so existing
+                                      # `mount=Mount.X` components migrate transparently.
+    emits=("iter12_tool_retry_planned",),  # NEW; self-documents custom events this
+                                       # component raises via ctx.emit(...).
+)
+```
+
+Pick `listens="<tier-1 name>"` when you want narrower failure-mode targeting
+(e.g. `on_tool_error` rather than `post_tool_use` + matcher on
+`ctx.current_tool_success`). The `mount` field is still required for policy
+validation — set it to the closest Mount enum.
+
+### `ctx.chat()` / `ctx.emit()` / `ctx.emit_upstream()` (Phase C)
+
+`ComponentContext` now inherits from `EventContext`:
+
+| method                                | semantics                                                                                          |
+|---------------------------------------|----------------------------------------------------------------------------------------------------|
+| `ctx.chat(messages, *, max_tokens=8192, temperature=0.0, system_override=None, tools=None)` | Sub-LLM call bound to the locked SUT model. No `model=` kwarg.                                       |
+| `ctx.emit(custom_event_name, **fields)` | Synchronously fire a Tier-2/3 custom event. Re-enters the dispatcher with a depth cap of 10. Fields are dropped in v1; pass data via `ctx.shared` / `ctx.upstream`. |
+| `ctx.emit_upstream(key, value)`       | `ctx.upstream[key] = value`. Downstream components reading later events read `ctx.upstream[key]`.    |
+| `ctx.fetch` / `ctx.read_file`         | Reserved hooks. None-wired in sopbench v1 — calling raises.                                          |
+
+Declare `capabilities=(Capability.LLM_CALL,)` for any component that uses `ctx.chat()`.
+
+### Custom events (Tier 2/3)
+
+A component can emit its own custom event name to coordinate with sibling
+components in the same task. Convention:
+
+```
+iter<N>_<slug>_<event>        e.g. iter9_tool_arg_schema_filter_dropped_unknown_kwarg
+on_<thing>                    cross-iter failure-mode name
+```
+
+Always declare `emits=("iter<N>_<slug>_<event>", ...)` on the publisher.
+Grep `agent/components_sopbench_<domain>/*.py` for `emits=` to find taken
+names. Subscribers declare `listens="iter<N>_<slug>_<event>"`. To admit
+decision kinds beyond ALLOW for a custom event, add a string-key entry to
+`ALLOWED[ComponentClass.X]` in `agent/component_runtime_sopbench/policy.py`.
+
+### Event-based patterns
+
+Augments the patterns table above:
+
+| pattern                                              | class           | listens                    | decision                                    |
+|------------------------------------------------------|-----------------|----------------------------|---------------------------------------------|
+| schema-validate tool args narrowly                   | mechanism_layer | `pre_tool_arg_validation`  | rewrite (drop unknown kwargs) / block       |
+| retry hint on tool error                             | reactive_guard  | `on_tool_error`            | inject_context (queued for next turn)       |
+| length-recovery via sub-LLM with bigger budget       | reactive_guard  | `on_length_truncation`     | rewrite (via `ctx.chat(max_tokens=32768)`)  |
+| reactive XML-format check on empty response          | reactive_guard  | `on_empty_response`        | inject_context (retry hint)                 |
+| publisher/subscriber dataflow within one task        | mechanism_layer | (A emits `iter<N>_<slug>_X`) → (B `listens="iter<N>_<slug>_X"`, reads `ctx.upstream`) | allow / inject_context |
 
 ## What NOT to write
 

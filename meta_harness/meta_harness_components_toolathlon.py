@@ -313,6 +313,26 @@ CRITICAL:
     need them.
   - No task-specific hardcoding (no train task_ids, entity names, or
     fixed strings from any individual task in the component file).
+
+NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
+  - Tier-1 events fire alongside the v1/v2 hooks path. The post-Runner
+    subset is emitted in v1: task_received / pre_context_build /
+    pre_agent_construct / post_llm_response_raw / on_length_truncation /
+    on_empty_response / on_explicit_terminate / session_end. The 5
+    SDK-internal events (pre_llm_request / pre_tool_arg_validation /
+    post_tool_result_raw / on_tool_error / on_no_tool_call_emitted) are
+    declared but NOT emitted in v1 (deferred to v3 ModelProvider wrap).
+  - You MAY use `listens="on_explicit_terminate"` to install an artifact
+    gate (verify workspace file exists before allowing the agent to
+    terminate). A BLOCK decision from the subscriber refuses termination
+    and the agent loop continues.
+  - `ctx.chat(messages, max_tokens=..., temperature=...)` is available for
+    sub-LLM verifier patterns. It routes through agent.llm.chat (the SAME
+    locked SUT model name the SDK Runner uses; NOT the SDK ModelProvider).
+    No `model=` kwarg. Declare `capabilities=(Capability.LLM_CALL,)` if used.
+  - `ctx.emit("iter<N>_<slug>_<event>")` / `ctx.emit_upstream(...)` let two
+    components coordinate within one task. Declare `emits=(...)` on the
+    publisher for audit / discovery.
 """
 
 

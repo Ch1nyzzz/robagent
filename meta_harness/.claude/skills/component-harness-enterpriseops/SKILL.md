@@ -160,7 +160,8 @@ Plus a JSON snapshot `meta_harness/logs_components_enterpriseops_<domain>/fronti
 - **You do NOT run benchmarks.** No `run_enterpriseops_baseline.py`, no `evaluate.py`. The outer loop scores.
 - **No task-specific code.** No domain-specific entity names in matchers (no calendar names, no user names, no UUIDs). No encoded gold answers.
 - **You may NOT read the `verifiers` field to drive component logic.** Components target structure (tool schemas, user_prompt patterns, finish_reason) — never the grading rubric.
-- **The target inference model is LOCKED via the upstream LLM config.** Components do NOT make additional LLM calls. No alternate model. No "second opinion" call. (`capability=llm_call` is reserved for a future sub-LLM verifier mount; the v1 admissible set is empty.)
+- **The target inference model is LOCKED via the upstream LLM config.** Components do NOT make additional LLM calls via langchain / direct API. No alternate model. No "second opinion" call.
+- **`ctx.chat()` (Phase C+) is permitted for sub-LLM verifier / re-format patterns** — it goes through the SAME locked SUT model name (via `agent.llm.chat`, NOT the upstream langchain client) with mutable inference params: `ctx.chat(messages, max_tokens=8192, temperature=0.0, system_override=None, tools=None)`. The helper does NOT accept a `model=` kwarg. Declaring `capabilities=(Capability.LLM_CALL,)` is required.
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
   cp agent/components_enterpriseops_<domain>/<existing>.py agent/components_enterpriseops_<domain>/<existing>.py.bak_iter<N>
@@ -273,6 +274,91 @@ For `disable_node`, omit `file` and the only `name` is the existing component's 
    "
    ```
 7. **Write `pending_eval.json`** at `meta_harness/logs_components_enterpriseops_<domain>/pending_eval.json` and print `CANDIDATE: <name>`.
+
+## Event runtime additions (Phase D)
+
+The mount-based dispatch above remains the canonical entry — every existing
+component fires via `listens = mount.value` by default (auto-set in
+`Component.__post_init__`). Phase D adds a parallel **Tier-1 event** namespace
+that surfaces finer per-turn / per-tool failure-mode signals the runtime sees.
+
+### Tier-1 events emitted by `EnterpriseOpsReactOrchestrator.execute()` + `run_task`
+
+All 15 Tier-1 events fire in enterpriseops:
+
+| event                       | when it fires                                                         | mount alignment            |
+|-----------------------------|-----------------------------------------------------------------------|----------------------------|
+| `task_received`             | right after `ComponentContext` is built (top of `run_task`)            | (new — lifecycle anchor)   |
+| `session_start`             | once per task, after MCP tools discovered                              | = `Mount.SESSION_START`    |
+| `pre_prompt_build`          | per task, default prompts built                                        | = `Mount.PRE_PROMPT_BUILD` |
+| `pre_context_build`         | paired with `pre_prompt_build` (cross-sibling alias)                   | aliases `pre_prompt_build` |
+| `pre_agent_construct`       | last hook before `BenchmarkConfig` is sealed                           | (new)                      |
+| `pre_llm_turn`              | per turn, before `llm_client.invoke_with_tools()`                      | = `Mount.PRE_LLM_TURN`     |
+| `pre_llm_request`           | paired with `pre_llm_turn` (cross-sibling alias)                       | (new alias)                |
+| `post_llm_response`         | per turn, after LangChain response                                     | = `Mount.POST_LLM_RESPONSE`|
+| `post_llm_response_raw`     | paired with `post_llm_response`                                        | aliases `post_llm_response`|
+| `on_length_truncation`      | **synthesised** when `finish_reason == "length"`                       | (new)                      |
+| `on_empty_response`         | **synthesised** when `raw_response.strip() == ""`                      | (new)                      |
+| `on_no_tool_call_emitted`   | **synthesised** when assistant emits no tool_calls                     | (new)                      |
+| `pre_tool_arg_validation`   | per MCP tool call, **before** `pre_tool_use`                           | (new)                      |
+| `pre_tool_use`              | per MCP tool call, main pre-tool decision                              | = `Mount.PRE_TOOL_USE`     |
+| `post_tool_use`             | per MCP tool call, after invocation                                    | = `Mount.POST_TOOL_USE`    |
+| `post_tool_result_raw`      | per MCP tool call, raw result anchor                                   | (new)                      |
+| `on_tool_error`             | **synthesised** when `current_tool_success == False`                   | (new)                      |
+| `on_explicit_terminate`     | **synthesised** when assistant emits final answer w/o tool calls       | (new)                      |
+| `pre_final_emit`            | after loop exit, AFTER upstream SQL verifiers ran (observational)      | = `Mount.PRE_FINAL_EMIT`   |
+| `session_end`               | bookkeeping                                                            | = `Mount.SESSION_END`      |
+
+### `Component.listens` and `emits` (Phase B)
+
+```python
+COMPONENT = Component(
+    ...,
+    listens="on_tool_error",          # default = mount.value; existing
+                                       # mount-only components migrate transparently.
+    emits=("iter12_acl_email_resolved",),  # self-doc of custom events the
+                                       # component raises via ctx.emit(...).
+)
+```
+
+Pick `listens="<tier-1 name>"` for narrow failure-mode targeting (e.g.
+`on_tool_error` rather than `post_tool_use` + matcher). The `mount` field is
+still required for policy validation — set it to the closest Mount enum.
+
+### `ctx.chat()` / `ctx.emit()` / `ctx.emit_upstream()` (Phase C)
+
+`ComponentContext` now inherits from `EventContext`:
+
+| method                                | semantics                                                                                          |
+|---------------------------------------|----------------------------------------------------------------------------------------------------|
+| `ctx.chat(messages, *, max_tokens=8192, temperature=0.0, system_override=None, tools=None)` | Sub-LLM call bound to the locked SUT model name via `agent.llm.chat`. No `model=` kwarg.            |
+| `ctx.emit(custom_event_name, **fields)` | Synchronously fire a Tier-2/3 custom event. Depth cap = 10. Fields dropped in v1; use `ctx.shared` / `ctx.upstream`. |
+| `ctx.emit_upstream(key, value)`       | `ctx.upstream[key] = value` sugar.                                                                  |
+| `ctx.fetch` / `ctx.read_file`         | None-wired in enterpriseops v1.                                                                     |
+
+Declare `capabilities=(Capability.LLM_CALL,)` for components that use `ctx.chat()`.
+
+### Custom events (Tier 2/3)
+
+```
+iter<N>_<slug>_<event>        e.g. iter9_acl_normalize_resolved_email
+on_<thing>                    failure-mode style
+```
+
+Always declare `emits=(...)` on the publisher; grep
+`agent/components_enterpriseops_<domain>/*.py` for taken names. To admit
+non-ALLOW decisions on a custom event, add a string-key entry to
+`ALLOWED[ComponentClass.X]` in
+`agent/component_runtime_enterpriseops/policy.py`.
+
+### Event-based patterns
+
+| pattern                                              | class           | listens                    | decision                                    |
+|------------------------------------------------------|-----------------|----------------------------|---------------------------------------------|
+| schema-validate MCP tool args narrowly               | mechanism_layer | `pre_tool_arg_validation`  | rewrite (normalise email casing, fill UTC)  |
+| retry-hint after MCP 4xx                              | reactive_guard  | `on_tool_error`            | inject_context (queued for next turn)       |
+| sub-LLM verify final answer before SQL judging       | mechanism_layer | `on_explicit_terminate`    | inject_context (retry) / block (rare)        |
+| publisher/subscriber dataflow within one task        | mechanism_layer | (A emits `iter<N>_<slug>_X`) → (B `listens="iter<N>_<slug>_X"`) | inject_context (consume `ctx.upstream`)      |
 
 ## What NOT to write
 

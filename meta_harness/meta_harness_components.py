@@ -195,6 +195,20 @@ CRITICAL:
     you encounter such a path, _proposer_docker.py has a manifest bug
     — do not read it.
   - No task-specific hardcoding. No customer names / order ids in code.
+
+NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
+  - Tier-1 events fire through a parallel core dispatcher (the legacy
+    `_dispatch_pre_tool_use` / `_dispatch_post_llm_response` /
+    `_dispatch_post_tool_use` paths are unchanged for tau2-shaped objects).
+    Components MAY use `listens="on_tool_error"` (or any Tier-1 name) to
+    subscribe to runtime-synthesised events. The `mount=` field is still
+    required for policy validation.
+  - `ctx.chat(messages, max_tokens=..., temperature=...)` is available
+    for sub-LLM verifier patterns — locked SUT model, no `model=` kwarg.
+    Declare `capabilities=(Capability.LLM_CALL,)` if used.
+  - `ctx.emit("iter{iteration}_<slug>_<event>")` / `ctx.emit_upstream(...)`
+    are available for component-to-component dataflow within a task.
+    Declare `emits=(...)` on the publisher.
 """
 
 

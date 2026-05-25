@@ -137,6 +137,7 @@ Plus a JSON snapshot `meta_harness/logs_components_gaia/frontier_workflow.json` 
 - **You do NOT run benchmarks.** No `run_benchmark.py`, no `tools/eval.py`. The outer loop scores.
 - **No task-specific code.** No entity names ("Finding Nemo", "USGS"), no per-task branching, no encoded gold answers.
 - **The target inference model is LOCKED.** It is the System Under Test. Do NOT pass a `model=` kwarg to `chat()` and do NOT call any other model API. `agent.llm.chat()` enforces this at call time — passing any model other than `DEFAULT_MODEL` raises `RuntimeError`. (No flash/lite/cheaper-variant fallbacks. No second-opinion calls to a different model. The endpoint and model name are fixed per run via `MODEL_NAME` env; the proposer does not see and does not control them.)
+- **`ctx.chat()` (Phase C+) is permitted for sub-LLM verifier / recovery patterns** — it goes through the SAME locked SUT model with mutable inference params: `ctx.chat(messages, max_tokens=32768, temperature=0.7)`. This is how length-truncation recovery is now expressed: subscribe to `on_length_truncation`, call `ctx.chat(..., max_tokens=32768)`, and `Decision.rewrite(content)` the recovered text. Declaring `capabilities=(Capability.LLM_CALL,)` is required. Passing `model=` to `ctx.chat()` is impossible — the helper does not accept that kwarg.
 - General documented policy may enter as **advisory context** via `channel` or `induced_rule` (advisory only). Compiling policy text into a mechanical override is not admissible.
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
@@ -318,6 +319,100 @@ CANDIDATE: component_iter<N>_<slug>
 | normalise number (strip thousand-separators)     | mechanism_layer   | pre_answer_emit   | rewrite                   |
 | detect "I cannot answer" → BLOCKED               | reactive_guard    | pre_answer_emit   | rewrite (to None) / block |
 | advisory: "remember to cite the source URL"      | induced_rule      | pre_prompt_build  | inject_context            |
+
+## Event runtime additions (Phase D)
+
+The mount-based dispatch above remains the canonical entry — every existing
+component fires via `listens = mount.value` by default (auto-set in
+`Component.__post_init__`). Phase D adds a parallel **Tier-1 event** namespace
+so components can subscribe to finer signals the runtime observes (e.g.
+`finish_reason=length`) without writing a matcher on `ctx.shared["finish_reason"]`.
+
+### Tier-1 events emitted by GAIA `run_task`
+
+| event                   | when it fires                                                          | replaces / aliases       |
+|-------------------------|------------------------------------------------------------------------|--------------------------|
+| `task_received`         | right after `ComponentContext` is built                                | (new — lifecycle anchor) |
+| `session_start`         | once, static framework-invariant injection                             | = `Mount.SESSION_START`  |
+| `pre_prompt_build`      | per task, before messages list is built                                | = `Mount.PRE_PROMPT_BUILD` |
+| `pre_context_build`     | paired with `pre_prompt_build` (cross-sibling alias)                   | aliases `pre_prompt_build` |
+| `pre_agent_construct`   | just before messages list is sealed                                    | (new)                    |
+| `pre_llm_request`       | just before the SUT `chat()` call                                      | (new)                    |
+| `post_llm_response`     | after raw LLM content, before answer extraction                        | = `Mount.POST_LLM_RESPONSE` |
+| `post_llm_response_raw` | paired with `post_llm_response`                                        | aliases `post_llm_response` |
+| `on_length_truncation`  | **synthesised** when `finish_reason == "length"`                       | (new failure-mode event) |
+| `on_empty_response`     | **synthesised** when `raw_response.strip() == ""`                      | (new failure-mode event) |
+| `pre_answer_emit`       | after default extraction, before return                                | = `Mount.PRE_ANSWER_EMIT` |
+| `session_end`           | bookkeeping at end of task                                             | = `Mount.SESSION_END`    |
+
+Tool-related events (`pre_tool_use`, `post_tool_use`, `on_tool_error`, etc.) do
+NOT fire for GAIA — it has no tool loop.
+
+### `Component.listens` and `emits` (Phase B)
+
+The `Component` dataclass gained two fields:
+
+```python
+COMPONENT = Component(
+    ...,
+    listens="on_length_truncation",   # NEW; default = mount.value, so existing
+                                      # `mount=Mount.X` components migrate transparently.
+    emits=("iter12_length_recovered",),  # NEW; self-documents custom events this
+                                      # component raises via ctx.emit(...).
+                                      # Tuple of event-name strings; not enforced.
+)
+```
+
+A new component picks `listens="<tier-1 name>"` when it wants to react to
+the synthesised events the runtime emits (e.g. `on_length_truncation`) rather
+than writing a matcher on the raw `ctx.shared["finish_reason"]`. The `mount`
+field is still required for policy validation — set it to the closest Mount
+enum (e.g. `Mount.POST_LLM_RESPONSE` for an `on_length_truncation` subscriber).
+
+### `ctx.chat()` / `ctx.emit()` / `ctx.emit_upstream()` (Phase C)
+
+`ComponentContext` now inherits from `EventContext` and exposes:
+
+| method                                | semantics                                                                                          |
+|---------------------------------------|----------------------------------------------------------------------------------------------------|
+| `ctx.chat(messages, *, max_tokens=8192, temperature=0.0, system_override=None, tools=None)` | Sub-LLM call bound to the locked SUT model. **No `model=` kwarg** — impossible by signature.        |
+| `ctx.emit(custom_event_name, **fields)` | Synchronously fire a Tier-2/3 custom event from inside a handler. Re-enters the dispatcher with a depth cap of 10. Fields are dropped in v1; pass data via `ctx.shared` / `ctx.upstream` instead. |
+| `ctx.emit_upstream(key, value)`       | Sugar for `ctx.upstream[key] = value`. Downstream components reading later events can read `ctx.upstream[key]`. |
+| `ctx.fetch(url)` / `ctx.read_file(path)` | Reserved capability hooks. None-wired in GAIA v1 — calling them raises a clear `RuntimeError`.       |
+
+`Capability.LLM_CALL` MUST be declared on any component that calls `ctx.chat()`.
+
+### Custom events (Tier 2/3)
+
+A component may emit its own custom event name to signal downstream work
+to other components within the same task. Naming convention:
+
+```
+iter<N>_<slug>_<event>        e.g. iter12_length_recovery_recovered
+on_<thing>                    e.g. on_recovered_response (cross-iter convention)
+```
+
+Always declare `emits=("iter<N>_<slug>_<event>", ...)` on the publisher so the
+audit / proposer tooling can grep for who-emits-what. To look up taken names
+from prior iters, grep `agent/components/*.py` for `emits=`. Subscribers
+declare `listens="iter<N>_<slug>_<event>"`. Custom-event subscribers can use
+any class admitted for the publisher's surrounding event (the matrix is
+event-key-aware: a `MECHANISM_LAYER` listening to `iter12_length_recovered`
+inherits the cell of whichever Tier-1 event it conceptually extends — there
+is no separate admission table for custom names; the policy validator looks
+up the literal string in `ALLOWED`, falling through to ALLOW-only if absent).
+Add an explicit string-key entry to `ALLOWED[ComponentClass.X]` if your
+custom event needs decisions beyond `allow` / `inject_context`.
+
+### Event-based patterns
+
+Augments the Common Patterns table above:
+
+| pattern                                              | class           | listens                | decision                   |
+|------------------------------------------------------|-----------------|------------------------|----------------------------|
+| length-recovery via sub-LLM with bigger budget       | reactive_guard  | `on_length_truncation` | rewrite (via `ctx.chat(max_tokens=32768)`) |
+| empty-response recovery                              | reactive_guard  | `on_empty_response`    | inject_context (retry hint) or rewrite     |
+| publish / subscribe between two components           | mechanism_layer | `pre_llm_request` (A emits `iter<N>_<slug>_X`) → `iter<N>_<slug>_X` (B reads `ctx.upstream`) | allow / inject_context |
 
 ## What this skill does NOT do
 

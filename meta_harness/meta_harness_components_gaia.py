@@ -173,6 +173,21 @@ CRITICAL:
     do not exist in the container. If you encounter such a path,
     _proposer_docker.py has a manifest bug — do not read it.
   - No task-specific hardcoding. No entity names or task ids in code.
+
+NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
+  - Tier-1 events are emitted alongside the legacy Mount dispatch. You MAY
+    write `listens="on_length_truncation"` (or any Tier-1 name) on your
+    Component to subscribe to the runtime-synthesised event directly,
+    instead of writing a matcher on `ctx.shared["finish_reason"]`. The
+    `mount=` field is still required for policy validation (set it to the
+    closest Mount enum).
+  - `ctx.chat(messages, max_tokens=..., temperature=...)` is available for
+    sub-LLM verifier / recovery patterns — it routes through the locked
+    SUT model name. Declare `capabilities=(Capability.LLM_CALL,)` if used.
+    The helper does NOT accept a `model=` kwarg (impossible by signature).
+  - `ctx.emit("iter{iteration}_<slug>_<event>")` / `ctx.emit_upstream(...)`
+    let two components exchange data within one task. Declare `emits=(...)`
+    on the publisher for audit / discovery.
 """
 
 

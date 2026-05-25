@@ -152,7 +152,8 @@ Plus a JSON snapshot `meta_harness/logs_components_toolathlon/frontier_workflow.
 - Exactly ONE patch per invocation.
 - **You do NOT run benchmarks.** No `toolathlon_runner.py`. The outer loop scores.
 - **No task-specific code.** No train task_ids in matchers. No hardcoded entity strings (paper IDs, GitHub repo names, Notion page slugs). No encoded gold answers.
-- **The target inference model (deepseek-v4-pro via Together AI) is LOCKED.** It is the System Under Test. Do NOT call any other LLM API from a component; do NOT attempt to override the model in `toolathlon_runner.py`. Components must be deterministic Python (or call the SDK only via the dispatched mount — never a raw chat API).
+- **The target inference model (deepseek-v4-pro via Together AI) is LOCKED.** It is the System Under Test. Do NOT call any other LLM API from a component; do NOT attempt to override the model in `toolathlon_runner.py`.
+- **`ctx.chat()` (Phase C+) is permitted for sub-LLM verifier patterns** — it goes through `agent.llm.chat()` (the locked SUT model name, the SAME one the SDK Runner uses, NOT the OpenAI Agents SDK ModelProvider). Mutable inference params only: `ctx.chat(messages, max_tokens=8192, temperature=0.0, system_override=None, tools=None)`. The helper does NOT accept a `model=` kwarg. Declaring `capabilities=(Capability.LLM_CALL,)` is required.
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
   cp agent_toolathlon/components/<existing>.py agent_toolathlon/components/<existing>.py.bak_iter<N>
@@ -288,6 +289,86 @@ Each `<tid>/` directory holds `traj_log.json`, `eval_res.json`, `host_loop.log`.
    "
    ```
 8. **Write `pending_eval.json`** and print `CANDIDATE: <name>`.
+
+## Event runtime additions (Phase D)
+
+The mount-based dispatch above (via `ComponentDispatcher.fire_*` and SDK
+hooks) remains the canonical path for `PRE_TOOL_USE` / `POST_TOOL_USE` (where
+the SDK surface is well-defined). Phase D adds a parallel **Tier-1 event**
+namespace that fires through a core dispatcher around the SDK Runner — so
+components can observe post-Runner signals the SDK does not surface mid-turn.
+
+### Tier-1 events emitted by `CrTaskAgent`
+
+| event                       | when it fires                                                         | emitted in v1? |
+|-----------------------------|-----------------------------------------------------------------------|----------------|
+| `task_received`             | top of `run_interaction_loop`                                          | ✅              |
+| `pre_context_build`         | in `setup_agent`, paired with the PRE_CONTEXT_BUILD instruction phase  | ✅              |
+| `pre_agent_construct`       | in `setup_agent`, just before `Agent(...)` is built                    | ✅              |
+| `pre_llm_request`           | inside SDK Runner (no hook available)                                  | ❌ deferred (v3)|
+| `post_llm_response_raw`     | after `ContextManagedRunner.run` returns                               | ✅              |
+| `on_length_truncation`      | **synthesised** when `result.raw_responses[-1].finish_reason=="length"` | ✅              |
+| `on_empty_response`         | **synthesised** when `result.final_output.strip() == ""`               | ✅              |
+| `on_no_tool_call_emitted`   | inside SDK Runner mid-turn                                             | ❌ deferred (v3)|
+| `pre_tool_arg_validation`   | inside SDK Runner per tool                                             | ❌ deferred (v3)|
+| `pre_tool_use`              | via `ComponentDispatcher.fire_pre_tool_use*` (v1/v2)                   | ✅ (mount path) |
+| `post_tool_use`             | via `ComponentDispatcher.fire_post_tool_use*` (v1/v2)                  | ✅ (mount path) |
+| `post_tool_result_raw`      | inside SDK Runner per tool                                             | ❌ deferred (v3)|
+| `on_tool_error`             | inside SDK Runner per tool                                             | ❌ deferred (v3)|
+| `on_explicit_terminate`     | after `termination_checker(...)` returns True                          | ✅ (subscribers can BLOCK to refuse termination — agent continues the loop) |
+| `session_end`               | top of `save_results`                                                  | ✅              |
+
+The 5 deferred events are declared in `ALLOWED` so a forward-compatible YAML
+can still reference them, but no runtime emit happens in v1 — subscribers
+load but never fire. Use the post-Runner subset for now.
+
+### `Component.listens` and `emits` (Phase B)
+
+```python
+COMPONENT = Component(
+    ...,
+    listens="on_explicit_terminate",   # default = mount.value; existing
+                                        # mount-only components migrate transparently.
+    emits=("iter9_artifact_check_passed",),  # self-doc of custom events.
+)
+```
+
+The `mount` field is still required for policy validation. Pick the Mount
+enum that conceptually owns the event (e.g. `Mount.STOP` for an
+`on_explicit_terminate` subscriber). The dispatcher buckets by `listens`.
+
+### `ctx.chat()` / `ctx.emit()` / `ctx.emit_upstream()` (Phase C)
+
+`ComponentContext` inherits from `EventContext`:
+
+| method                                | semantics                                                                                          |
+|---------------------------------------|----------------------------------------------------------------------------------------------------|
+| `ctx.chat(messages, *, max_tokens=8192, temperature=0.0, system_override=None, tools=None)` | Sub-LLM call bound to the locked SUT model via `agent.llm.chat` (NOT the SDK ModelProvider). No `model=` kwarg. |
+| `ctx.emit(custom_event_name, **fields)` | Synchronously fire a Tier-2/3 custom event. Depth cap = 10. Fields dropped; use `ctx.shared` / `ctx.upstream`. |
+| `ctx.emit_upstream(key, value)`       | `ctx.upstream[key] = value` sugar.                                                                  |
+| `ctx.fetch` / `ctx.read_file`         | None-wired in toolathlon v1.                                                                        |
+
+Declare `capabilities=(Capability.LLM_CALL,)` for components that use `ctx.chat()`.
+
+### Custom events (Tier 2/3)
+
+```
+iter<N>_<slug>_<event>        e.g. iter9_workspace_artifact_present
+on_<thing>                    failure-mode style
+```
+
+Always declare `emits=(...)` on the publisher; grep
+`agent_toolathlon/components/*.py` for taken names. To admit non-ALLOW
+decisions on a custom event, add a string-key entry to
+`ALLOWED[ComponentClass.X]` in `agent_toolathlon/component_runtime/policy.py`.
+
+### Event-based patterns
+
+| pattern                                              | class           | listens                    | decision                                                  |
+|------------------------------------------------------|-----------------|----------------------------|-----------------------------------------------------------|
+| artifact gate before termination (workspace file check) | reactive_guard  | `on_explicit_terminate`    | block (refuses termination; agent loop continues)         |
+| length-recovery via sub-LLM with bigger budget        | reactive_guard  | `on_length_truncation`     | inject_context ("answer was truncated; expand and retry") |
+| publish task progress for downstream observer        | mechanism_layer | (A `listens="post_llm_response_raw"`, emits `iter<N>_<slug>_progress`) → (B `listens="iter<N>_<slug>_progress"`) | allow / inject_context |
 
 ## What NOT to write
 

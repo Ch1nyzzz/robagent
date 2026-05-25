@@ -203,6 +203,7 @@ Component fires land in `.component-state/iter<N>/fired.jsonl` for the durabilit
 - **You do NOT run the simulator.** No `tau2_runner.py`, no `tau2 run`. The outer loop scores.
 - **No task-specific code.** No customer names, account / document ids, per-task branching, no encoding of gold answers or gold action sets.
 - General documented policy may enter as **advisory context** via a `channel` (mounts `session_start` / `pre_context_build` / `user_prompt_submit`) or an `induced_rule` (mounts `pre_context_build` / `user_prompt_submit`, decision `inject_context` only). Compiling policy into a mechanical override is not admissible at any class.
+- **The target inference model is LOCKED via the tau2 LLM config.** Components may NOT spin up a different model. `ctx.chat()` (Phase C+) IS permitted for sub-LLM verifier patterns — it routes through `agent.llm.chat` (locked SUT model name) with mutable inference params: `ctx.chat(messages, max_tokens=8192, temperature=0.0, system_override=None, tools=None)`. The helper does NOT accept a `model=` kwarg. Declaring `capabilities=(Capability.LLM_CALL,)` is required.
 - For `replace_node`, the **first shell action** you take MUST be:
   ```bash
   cp agent_tau2/components/<existing>.py agent_tau2/components/<existing>.py.bak_iter<N>
@@ -404,6 +405,90 @@ CANDIDATE: component_iter<N>_<slug>
 | escalation gate                        | reactive_guard    | stop                 | block                     | ensure escalation steps not skipped (reserved)         |
 
 See `patterns/<mount>.md` for per-mount worked examples.
+
+## Event runtime additions (Phase D)
+
+The mount-based dispatch above remains the canonical entry — every existing
+component fires via `listens = mount.value` by default (auto-set in
+`Component.__post_init__`). Phase D adds a parallel **Tier-1 event** namespace.
+In tau2 the legacy `_dispatch_pre_tool_use` / `_dispatch_post_llm_response` /
+`_dispatch_post_tool_use` paths are unchanged (they own tau2-shaped
+`ToolCall` / `AssistantMessage` rewriting); the Tier-1 events fire through a
+parallel core dispatcher that uses the same component set but a coarser
+INJECT_CONTEXT / BLOCK applier.
+
+### Tier-1 events emitted by `ComponentLLMAgent` (parallel to mount dispatch)
+
+| event                       | when it fires                                                         | mount alignment             |
+|-----------------------------|-----------------------------------------------------------------------|-----------------------------|
+| `task_received`             | start of `_collect_prompt_injection` (before any PRE_CONTEXT_BUILD)    | (new — lifecycle anchor)    |
+| `pre_context_build`         | paired with `Mount.PRE_CONTEXT_BUILD`                                  | = `Mount.PRE_CONTEXT_BUILD` |
+| `session_start`             | static system_prompt injection                                          | = `Mount.SESSION_START`     |
+| `pre_agent_construct`       | end of `_collect_prompt_injection` (instructions sealed)               | (new)                       |
+| `pre_llm_request`           | before `super().generate_next_message` per turn                        | (new)                       |
+| `post_llm_response_raw`     | after `super().generate_next_message` returns                          | aliases `post_llm_response` |
+| `on_empty_response`         | **synthesised** when assistant content is empty + no tool calls        | (new)                       |
+| `on_no_tool_call_emitted`   | **synthesised** when no tool_calls in assistant turn                   | (new)                       |
+| `pre_tool_arg_validation`   | per ToolCall, **before** `_dispatch_pre_tool_use` loop                 | (new)                       |
+| `pre_tool_use`              | per ToolCall, via legacy mount path                                    | = `Mount.PRE_TOOL_USE`      |
+| `post_llm_response`         | per AssistantMessage, via legacy mount path                            | = `Mount.POST_LLM_RESPONSE` |
+| `post_tool_result_raw`      | per ToolMessage in `_dispatch_post_tool_use`                           | (new)                       |
+| `on_tool_error`             | **synthesised** when `tm.error` is set                                 | (new)                       |
+| `post_tool_use`             | per ToolMessage, via legacy mount path                                 | = `Mount.POST_TOOL_USE`     |
+| `on_explicit_terminate` / `session_end` | reserved (not yet emitted in v1)                                      | (deferred)                  |
+
+INJECT_CONTEXT decisions from Tier-1 subscribers land either in
+`ctx.shared['tier1_prompt_inject']` (pre-LLM events, merged into the next
+instructions extension) or `ctx.shared['post_llm_inject']` (post-event,
+queued for the next outer turn as a SystemMessage).
+
+### `Component.listens` and `emits` (Phase B)
+
+```python
+COMPONENT = Component(
+    ...,
+    listens="on_tool_error",          # default = mount.value; existing
+                                       # mount-only components migrate transparently.
+    emits=("iter12_tool_retry_planned",),  # self-doc of custom events.
+)
+```
+
+The `mount` field is still required for policy validation. Pick the Mount
+enum that conceptually owns the event; the dispatcher buckets by `listens`.
+
+### `ctx.chat()` / `ctx.emit()` / `ctx.emit_upstream()` (Phase C)
+
+`ComponentContext` inherits from `EventContext`:
+
+| method                                | semantics                                                                                          |
+|---------------------------------------|----------------------------------------------------------------------------------------------------|
+| `ctx.chat(messages, *, max_tokens=8192, temperature=0.0, system_override=None, tools=None)` | Sub-LLM call bound to the locked SUT model name. No `model=` kwarg.                                  |
+| `ctx.emit(custom_event_name, **fields)` | Synchronously fire a Tier-2/3 custom event through the same core dispatcher. Depth cap = 10. Fields dropped; use `ctx.shared` / `ctx.upstream`. |
+| `ctx.emit_upstream(key, value)`       | `ctx.upstream[key] = value` sugar.                                                                  |
+| `ctx.fetch` / `ctx.read_file`         | None-wired in tau2 v1.                                                                              |
+
+Declare `capabilities=(Capability.LLM_CALL,)` for components that use `ctx.chat()`.
+
+### Custom events (Tier 2/3)
+
+```
+iter<N>_<slug>_<event>        e.g. iter12_audit_visibility_resolved
+on_<thing>                    failure-mode style
+```
+
+Always declare `emits=(...)` on the publisher; grep
+`agent_tau2/components/*.py` for taken names. To admit non-ALLOW decisions on
+a custom event, add a string-key entry to `ALLOWED[ComponentClass.X]` in
+`agent_tau2/component_runtime/policy.py`.
+
+### Event-based patterns
+
+| pattern                                              | class           | listens                    | decision                                    |
+|------------------------------------------------------|-----------------|----------------------------|---------------------------------------------|
+| schema-check tool args narrowly                      | mechanism_layer | `pre_tool_arg_validation`  | rewrite_tool_args (via `ctx.tool_call` rewrite) |
+| retry hint on observed tool error                    | reactive_guard  | `on_tool_error`            | inject_context (queued for next turn)       |
+| sub-LLM verifier on final assistant turn              | mechanism_layer | `post_llm_response_raw`    | rewrite_tool_args / block (via `ctx.chat`)  |
+| publisher/subscriber dataflow within one task        | mechanism_layer | (A emits `iter<N>_<slug>_X`) → (B `listens="iter<N>_<slug>_X"`) | inject_context (consume `ctx.upstream`)      |
 
 ## What this skill does NOT do
 

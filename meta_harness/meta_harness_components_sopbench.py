@@ -236,6 +236,21 @@ CRITICAL:
     components_sopbench_<other_domain>/, logs_components_sopbench_<other_domain>/,
     or workflows/sopbench_<other_domain>.yaml. Stick to YOUR domain only.
   - No task-specific hardcoding. No entity names or test-set IDs in code.
+
+NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
+  - All 15 Tier-1 events fire in sopbench. You MAY use
+    `listens="on_tool_error"` / `"on_length_truncation"` /
+    `"pre_tool_arg_validation"` / `"post_tool_result_raw"` /
+    `"on_explicit_terminate"` etc. on your Component to subscribe to
+    runtime-synthesised events directly, instead of writing matchers on
+    `ctx.current_tool_success` / `ctx.finish_reason`. The `mount=` field
+    is still required for policy validation (set it to the closest Mount).
+  - `ctx.chat(messages, max_tokens=..., temperature=...)` is available for
+    sub-LLM verifier / re-format / critic patterns — locked SUT model, no
+    `model=` kwarg. Declare `capabilities=(Capability.LLM_CALL,)` if used.
+  - `ctx.emit("iter<N>_<slug>_<event>")` / `ctx.emit_upstream(...)` let two
+    components exchange data within one task. Declare `emits=(...)` on the
+    publisher for audit / discovery.
 """
 
 
