@@ -45,11 +45,16 @@ from .policy import (
     validate_trust,
 )
 from .registry import load_module_from_path
+from .dispatcher import Dispatcher
+from .event_context import EventContext
+from . import events  # Tier-1 event-name string constants
 
 __all__ = [
     "ComponentClass",
     "ComponentPolicyError",
+    "Dispatcher",
     "Edge",
+    "EventContext",
     "FrontierSnapshot",
     "Patch",
     "PatchOp",
@@ -57,6 +62,7 @@ __all__ = [
     "Trust",
     "Workflow",
     "apply_patch",
+    "events",
     "load_module_from_path",
     "validate_decision",
     "validate_registration",

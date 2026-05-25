@@ -158,3 +158,18 @@ class Component:
     state_scope: StateScope = StateScope.NONE
     capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100
+    # Phase B (event-runtime migration) additions:
+    #   `listens` is the dispatcher subscription key. If left empty, the
+    #   __post_init__ below back-fills it from `mount.value` so existing
+    #   mount-based components keep working under the new dispatcher with
+    #   no source change. New components may set `listens="custom_event"`
+    #   and use `mount` purely as a placeholder for policy validation.
+    #   `emits` self-documents the custom Tier-2/3 events this component
+    #   raises via `ctx.emit(...)`; the runtime does not enforce, the
+    #   field is read by skill / proposer tooling for event-name discovery.
+    listens: str = ""
+    emits: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if not self.listens:
+            object.__setattr__(self, "listens", self.mount.value)

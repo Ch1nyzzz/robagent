@@ -190,6 +190,16 @@ class Component:
     state_scope: StateScope = StateScope.NONE
     capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100              # smaller fires first
+    # Phase B (event-runtime migration) additions:
+    #   `listens` is the dispatcher subscription key. Defaults via
+    #   __post_init__ to `mount.value` so existing components migrate
+    #   transparently. `emits` self-documents custom Tier-2/3 events.
+    listens: str = ""
+    emits: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if not self.listens:
+            object.__setattr__(self, "listens", self.mount.value)
 
 
 def matcher_for_tool(tool_name: str) -> Matcher:
