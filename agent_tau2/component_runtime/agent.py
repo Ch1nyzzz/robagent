@@ -1,18 +1,34 @@
 """ComponentLLMAgent + `build_agent` entry point.
 
 The runtime composes the active workflow's component set into a single
-`ComponentLLMAgent`, which subclasses tau2's stock `LLMAgent`. v1 weaves
-components into these surfaces:
+`ComponentLLMAgent`, which subclasses tau2's stock `LLMAgent`. Dispatch
+goes through ONE core event dispatcher (`self._disp`) — the legacy
+`_by_mount` bucketing was removed during the event-runtime cleanup.
+Existing components keep firing via the `Component.listens = mount.value`
+alias (set by `Component.__post_init__`).
 
-  * PRE_CONTEXT_BUILD  — INJECT_CONTEXT decisions append to a per-session
-                         prompt extension, BEFORE SESSION_START fires.
-  * SESSION_START      — INJECT_CONTEXT decisions append to the same
-                         extension (mounted into `system_prompt` once).
-  * PRE_TOOL_USE       — REWRITE_TOOL_ARGS / BLOCK / DEFER on each emitted
-                         ToolCall.
-  * POST_LLM_RESPONSE  — REWRITE_TOOL_ARGS / BLOCK / INJECT_CONTEXT on the
-                         full AssistantMessage (sub-LLM verifier slot).
-  * POST_TOOL_USE      — INJECT_CONTEXT for each incoming ToolMessage.
+Events emitted per lifecycle phase:
+
+  * Setup (one-shot at __init__):
+        task_received  →  pre_context_build (= Mount.PRE_CONTEXT_BUILD)
+            → session_start (= Mount.SESSION_START) → pre_agent_construct
+        INJECT_CONTEXT decisions accumulate into the system_prompt
+        extension; subsequent components see prior contributions via
+        `ctx.proposed_system_prompt`.
+
+  * Per turn (generate_next_message):
+        post_tool_result_raw + (gated) on_tool_error + post_tool_use
+            [if incoming message was a ToolMessage]
+            → pre_llm_request
+            → [LLM call]
+            → post_llm_response (= Mount.POST_LLM_RESPONSE) — REWRITE_TOOL_ARGS
+              rewrites first tool_call; BLOCK clears tool_calls; INJECT_CONTEXT
+              queues SystemMessage for next turn
+            → post_llm_response_raw (Tier-1 alias) + (gated) on_empty_response /
+              on_no_tool_call_emitted
+            → pre_tool_arg_validation (per ToolCall) → pre_tool_use
+              (= Mount.PRE_TOOL_USE; per ToolCall) — REWRITE_TOOL_ARGS rewrites
+              args; BLOCK drops THIS tool call; DEFER falls back to ALLOW
 
 USER_PROMPT_SUBMIT / STOP / SESSION_END are reserved (declared in Mount and
 validated by `policy.py`) but not yet dispatched. Adding them is local to
@@ -72,51 +88,91 @@ def _make_chat_impl():
     return _impl
 
 
-def _apply_tier1_decision(ctx: ComponentContext, decision,
+def _apply_tau2_decision(ctx: ComponentContext, decision,
                           comp: Component) -> bool:
-    """Decision applier for Tier-1 events in tau2.
+    """Unified decision applier for every tau2 event (cleanup of the
+    parallel legacy `_dispatch_*` paths). Event-aware so the same
+    DecisionKind can mean different things at different lifecycle points:
 
-    The legacy `_dispatch_*` methods handle mount-keyed decisions (which
-    rewrite tau2-shaped tool_calls / AssistantMessages); Tier-1 events
-    are coarser and side-effect-light. INJECT_CONTEXT queues a text
-    fragment under ctx.shared['post_llm_inject'] which the agent reads
-    on the next turn as a SystemMessage. BLOCK halts further subscribers
-    at this event (the calling site decides whether to abort the task).
+      INJECT_CONTEXT @ pre-LLM events  → accumulate into
+            ctx.proposed_system_prompt (so subsequent subscribers see it)
+            AND append to ctx.shared['tier1_prompt_inject'] so the outer
+            code can read out the joined extension.
+      INJECT_CONTEXT @ post_llm_response* → append to
+            ctx.shared['_tau2_post_llm_injections']
+      INJECT_CONTEXT @ post_tool_use*   → append to
+            ctx.shared['_tau2_post_tool_injections']
+      REWRITE_TOOL_ARGS @ pre_tool_use* → rewrite ctx.tool_call
+      REWRITE_TOOL_ARGS @ post_llm_response* → rewrite ctx.tool_call AND
+            mark ctx.shared['_tau2_first_tool_call_rewritten']=True so
+            the outer code knows to swap tool_calls[0]
+      BLOCK @ pre_tool_use*  → mark ctx.shared['_tau2_drop_this_tool']=True
+            and STOP further subscribers (this ToolCall is dropped)
+      BLOCK @ post_llm_response* → mark ctx.shared['_tau2_clear_tool_calls']
+            =True and STOP further subscribers
+      BLOCK @ anything else → ctx.blocked=True, terminate
+      DEFER → fall back to ALLOW (v1; replay queue is future work)
     """
     event = ctx.event or ""
     kind = decision.kind
-    if kind is DecisionKind.ALLOW:
+    if kind is DecisionKind.ALLOW or kind is DecisionKind.DEFER:
         return False
+
     if kind is DecisionKind.INJECT_CONTEXT:
         text = str(decision.payload or "")
-        if event in ("task_received", "pre_context_build", "pre_agent_construct",
-                     "pre_llm_request"):
-            # Pre-LLM injection: write into the upstream-visible prompt
-            # extension dict so _collect_prompt_injection picks it up on
-            # the next refresh (or the agent reads it directly).
+        if event in (
+            "task_received",
+            "pre_context_build",
+            "session_start",
+            "pre_agent_construct",
+            "user_prompt_submit",
+            "pre_llm_request",
+        ):
+            # Accumulate into proposed_system_prompt so subsequent
+            # subscribers in the same emit() see the contribution.
+            if ctx.proposed_system_prompt is not None:
+                ctx.proposed_system_prompt = (
+                    ctx.proposed_system_prompt + "\n\n" + text
+                )
             ctx.shared.setdefault("tier1_prompt_inject", []).append(text)
+        elif event in ("post_tool_use", "post_tool_result_raw"):
+            ctx.shared.setdefault("_tau2_post_tool_injections", []).append(text)
+        elif event in ("post_llm_response", "post_llm_response_raw",
+                        "on_length_truncation", "on_empty_response",
+                        "on_no_tool_call_emitted"):
+            ctx.shared.setdefault("_tau2_post_llm_injections", []).append(text)
         else:
             ctx.shared.setdefault("post_llm_inject", []).append(text)
         return False
-    if kind is DecisionKind.BLOCK:
-        ctx.blocked = True
-        ctx.blocked_reason = decision.reason or f"{comp.name}: block"
-        return True
+
     if kind is DecisionKind.REWRITE_TOOL_ARGS:
-        if event == "pre_tool_arg_validation" and ctx.tool_call is not None:
-            from tau2.data_model.message import ToolCall
+        if ctx.tool_call is not None:
             tc = ctx.tool_call
             ctx.tool_call = ToolCall(
                 id=tc.id, name=tc.name,
                 arguments=dict(decision.payload),
                 requestor=tc.requestor,
             )
+            if event in ("post_llm_response", "post_llm_response_raw"):
+                ctx.shared["_tau2_first_tool_call_rewritten"] = True
         return False
+
+    if kind is DecisionKind.BLOCK:
+        if event in ("pre_tool_use", "pre_tool_arg_validation"):
+            ctx.shared["_tau2_drop_this_tool"] = True
+            return True
+        if event in ("post_llm_response", "post_llm_response_raw"):
+            ctx.shared["_tau2_clear_tool_calls"] = True
+            return True
+        ctx.blocked = True
+        ctx.blocked_reason = decision.reason or f"{comp.name}: block"
+        return True
+
     return False
 
 
-def _validate_for_tier1(comp: Component, event_name: str,
-                        kind: DecisionKind) -> None:
+def _validate_event(comp: Component, event_name: str,
+                    kind: DecisionKind) -> None:
     """Adapter: core dispatcher passes event_name string; policy normalises."""
     validate_decision(comp.cls, event_name, kind)
 
@@ -134,29 +190,16 @@ def _trace_dir() -> Path:
     return d
 
 
-def _trace(component_name: str, mount: Mount, decision_kind: DecisionKind,
-           extra: dict) -> None:
-    rec = {
-        "ts": time.time(),
-        "component": component_name,
-        "mount": mount.value,
-        "event": mount.value,
-        "decision": decision_kind.value,
-        **extra,
-    }
-    with (_trace_dir() / "fired.jsonl").open("a") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-
 def _trace_event(component_name: str, event_name: str,
                  decision_kind_value: str, extra: dict) -> None:
-    """Trace sink for Tier-1 events (core.Dispatcher sink signature).
-    Same shape as `_trace` but the key is `event` not `mount`."""
+    """Trace sink for the core.Dispatcher (signature
+    `(comp_name, event_name, decision_kind_value, extra)`). Writes one
+    JSONL row per fire to `.component-state/<run_tag>/fired.jsonl`."""
     rec = {
         "ts": time.time(),
         "component": component_name,
         "event": event_name,
-        "mount": event_name,
+        "mount": event_name,                   # legacy log-reader compat
         "decision": decision_kind_value,
         **extra,
     }
@@ -180,48 +223,40 @@ class ComponentLLMAgent(LLMAgent):
         self._components_by_name = components_by_name or {}
         self._tool_names = tuple(getattr(t, "name", "") for t in tools)
 
-        # Bucket active components by mount in workflow insertion order.
-        self._by_mount: dict[Mount, list[Component]] = {m: [] for m in Mount}
-        for name in self._workflow.active_nodes():
-            comp = self._components_by_name.get(name)
-            if comp is None:
-                continue
-            self._by_mount[comp.mount].append(comp)
-        # Stable sort within each mount: (priority, insertion).
-        for mount in Mount:
-            self._by_mount[mount].sort(
-                key=lambda c, ord_=self._workflow.nodes:
-                    (c.priority, ord_.index(c.name))
-            )
-
         # Per-session SESSION-scope state (keyed by component name).
         self._session_state: dict[str, dict] = {
             n: {} for n in self._workflow.active_nodes()
         }
 
-        # Phase B/C/D: parallel event dispatcher fires components by their
-        # string `listens` field (Tier-1 events). Existing components keep
-        # firing via the legacy `_dispatch_*` methods (which iterate
-        # `self._by_mount`) so behavior is purely additive.
-        all_comps: list[Component] = [
-            c for comps in self._by_mount.values() for c in comps
-        ]
-        self._tier1_disp = _CoreDispatcher(
-            all_comps,
-            validate_decision=_validate_for_tier1,
-            apply_decision=_apply_tier1_decision,
+        # Single core dispatcher — components are bucketed by their
+        # string `listens` field. Existing components keep firing via
+        # the `Component.__post_init__` mount→listens alias, so the
+        # workflow.active_nodes() insertion order + Python's stable
+        # priority sort reproduce the legacy (priority, insertion) order.
+        active: list[Component] = []
+        for name in self._workflow.active_nodes():
+            comp = self._components_by_name.get(name)
+            if comp is not None:
+                active.append(comp)
+        self._disp = _CoreDispatcher(
+            active,
+            validate_decision=_validate_event,
+            apply_decision=_apply_tau2_decision,
             trace_sink=_trace_event,
         )
 
-        # Cache the static prompt injections (PRE_CONTEXT_BUILD +
-        # SESSION_START) once at init.
+        # Cache the static prompt injections (task_received,
+        # pre_context_build, session_start, pre_agent_construct) once.
         self._prompt_injection = self._collect_prompt_injection()
 
-    # ---- tier-1 event helpers ----------------------------------------------
+    # ---- event helpers -----------------------------------------------------
 
-    def _make_tier1_ctx(self, event_name: str, mount: Mount,
-                       **fields) -> ComponentContext:
-        """Build a ComponentContext with Tier-1 capability hooks wired."""
+    def _make_ctx(self, event_name: str, mount: Mount,
+                  **fields) -> ComponentContext:
+        """Build a ComponentContext with capability hooks wired.
+        `mount` is the closest Mount enum for legacy matchers that read
+        `ctx.mount`; the dispatcher itself routes via `ctx.event` / the
+        string-keyed `Component.listens` field."""
         ctx = ComponentContext(
             mount=mount,
             domain_policy=self.domain_policy,
@@ -231,86 +266,46 @@ class ComponentLLMAgent(LLMAgent):
             **fields,
         )
         ctx._impl_chat = _make_chat_impl()
-        ctx._impl_emit = lambda name, payload: self._tier1_disp.emit(name, ctx)
+        ctx._impl_emit = lambda name, payload: self._disp.emit(name, ctx)
         return ctx
-
-    def _emit_tier1(self, event_name: str, ctx: ComponentContext) -> None:
-        """Fire a Tier-1 event through the parallel dispatcher."""
-        self._tier1_disp.emit(event_name, ctx)
 
     # ---- prompt -------------------------------------------------------------
 
     def _collect_prompt_injection(self) -> str:
-        """Fire PRE_CONTEXT_BUILD then SESSION_START; concatenate injections.
+        """Fire the 4 setup-phase events sequentially; each emit's
+        accumulated INJECT_CONTEXT fragments roll into the next event's
+        `proposed_system_prompt` so multi-component pipelines compose.
 
-        PRE_CONTEXT_BUILD components receive a `proposed_system_prompt` set
-        to the bare formatted SYSTEM_PROMPT. Each may INJECT_CONTEXT; the
-        next handler sees the previous handler's contributions appended.
-        SESSION_START fires after, with the same accumulator.
-
-        Phase D: Tier-1 task_received fires before PRE_CONTEXT_BUILD; the
-        pre_context_build event aliases the PRE_CONTEXT_BUILD mount for
-        cross-sibling consistency. INJECT_CONTEXT decisions from Tier-1
-        subscribers are merged with the mount-keyed injections.
+        Events fired (priority-ordered within each):
+          task_received       — Tier-1 lifecycle anchor (no mount alias)
+          pre_context_build   — also Mount.PRE_CONTEXT_BUILD.value, so
+                                legacy `mount=Mount.PRE_CONTEXT_BUILD`
+                                components fire here via `listens` alias
+          session_start       — Mount.SESSION_START.value
+          pre_agent_construct — Tier-1 only
         """
         proposed = SYSTEM_PROMPT.format(
             domain_policy=self.domain_policy,
             agent_instruction=AGENT_INSTRUCTION,
         )
-
-        # Tier-1 task_received: lifecycle anchor before any mount fires.
-        # Subscribers can read `ctx.shared['tier1_prompt_inject']` they
-        # populate themselves via further `ctx.emit_upstream` calls etc.
-        t1_ctx = self._make_tier1_ctx(
-            "task_received", Mount.PRE_CONTEXT_BUILD,
-            proposed_system_prompt=proposed,
-        )
-        self._tier1_disp.emit("task_received", t1_ctx)
-        for fragment in (t1_ctx.shared.get("tier1_prompt_inject") or []):
-            proposed = proposed + "\n\n" + str(fragment)
-
-        for mount in (Mount.PRE_CONTEXT_BUILD, Mount.SESSION_START):
-            for comp in self._by_mount.get(mount, []):
-                ctx = ComponentContext(
-                    mount=mount,
-                    domain_policy=self.domain_policy,
-                    tool_names=self._tool_names,
-                    proposed_system_prompt=proposed,
-                    state=self._session_state,
-                )
-                if comp.matcher is not None and not comp.matcher(ctx):
-                    continue
-                decision = comp.handler(ctx)
-                validate_decision(comp.cls, comp.mount, decision.kind)
-                if decision.kind is DecisionKind.INJECT_CONTEXT:
-                    text = str(decision.payload)
-                    parts.append(text)
-                    proposed = proposed + "\n\n" + text
-                    _trace(comp.name, comp.mount, decision.kind,
-                           {"chars": len(text)})
-                else:
-                    _trace(comp.name, comp.mount, decision.kind, {})
-
-        # Tier-1 pre_context_build alias for the SESSION_START + PRE_CONTEXT_BUILD
-        # phase, then pre_agent_construct as the last setup-phase hook.
-        ctx2 = self._make_tier1_ctx(
-            "pre_context_build", Mount.PRE_CONTEXT_BUILD,
-            proposed_system_prompt=proposed,
-        )
-        self._tier1_disp.emit("pre_context_build", ctx2)
-        for fragment in (ctx2.shared.get("tier1_prompt_inject") or []):
-            if fragment not in parts:
-                parts.append(str(fragment))
-                proposed = proposed + "\n\n" + str(fragment)
-
-        ctx3 = self._make_tier1_ctx(
-            "pre_agent_construct", Mount.SESSION_START,
-            proposed_system_prompt=proposed,
-        )
-        self._tier1_disp.emit("pre_agent_construct", ctx3)
-        for fragment in (ctx3.shared.get("tier1_prompt_inject") or []):
-            if fragment not in parts:
-                parts.append(str(fragment))
+        parts: list[str] = []
+        for event_name, mount in (
+            ("task_received", Mount.PRE_CONTEXT_BUILD),
+            ("pre_context_build", Mount.PRE_CONTEXT_BUILD),
+            ("session_start", Mount.SESSION_START),
+            ("pre_agent_construct", Mount.SESSION_START),
+        ):
+            ctx = self._make_ctx(
+                event_name, mount,
+                proposed_system_prompt=proposed,
+            )
+            self._disp.emit(event_name, ctx)
+            for fragment in (ctx.shared.get("tier1_prompt_inject") or []):
+                if fragment not in parts:
+                    parts.append(str(fragment))
+            # apply_decision already accumulated injections into
+            # ctx.proposed_system_prompt; carry forward to next emit.
+            proposed = ctx.proposed_system_prompt or proposed
 
         return "\n\n".join(parts)
 
@@ -328,45 +323,50 @@ class ComponentLLMAgent(LLMAgent):
     # ---- turn ---------------------------------------------------------------
 
     def generate_next_message(self, message, state):
-        # POST_TOOL_USE: text injection for the next assistant turn.
+        # POST_TOOL_USE → per-ToolMessage emit; result/error events first
+        # to let downstream rewrite injections, then mount.value alias so
+        # legacy POST_TOOL_USE components fire.
         if isinstance(message, (ToolMessage, MultiToolMessage)):
-            self._dispatch_post_tool_use(message, state)
+            self._fire_post_tool_use(message, state)
 
-        # Tier-1 pre_llm_request: anything wired to react just before the
-        # SUT call (sub-LLM verifier prep, audit logging, etc.).
-        pre_ctx = self._make_tier1_ctx(
+        # pre_llm_request: anything wired to react just before the SUT call.
+        pre_ctx = self._make_ctx(
             "pre_llm_request", Mount.POST_LLM_RESPONSE,
             incoming_message=message,
             history=list(state.messages),
         )
-        self._tier1_disp.emit("pre_llm_request", pre_ctx)
+        self._disp.emit("pre_llm_request", pre_ctx)
 
         assistant_message, state = super().generate_next_message(message, state)
 
-        # POST_LLM_RESPONSE: sub-LLM verifier / observer. May rewrite
-        # tool_calls, block them entirely, or inject a note for next turn.
-        assistant_message = self._dispatch_post_llm_response(
+        # POST_LLM_RESPONSE (mount.value + Tier-1 alias) — REWRITE_TOOL_ARGS,
+        # BLOCK (clear tool_calls), INJECT_CONTEXT (next-turn SystemMessage).
+        assistant_message = self._fire_post_llm_response(
             assistant_message, state
         )
 
-        # Tier-1 post_llm_response_raw + synthesised failure-mode events.
+        # Synthesised failure-mode events keyed off the (possibly rewritten)
+        # assistant message shape.
         content = getattr(assistant_message, "content", None) or ""
         tcs = list(getattr(assistant_message, "tool_calls", None) or [])
-        post_ctx = self._make_tier1_ctx(
-            "post_llm_response_raw", Mount.POST_LLM_RESPONSE,
-            assistant_message=assistant_message,
-            tool_call=tcs[0] if tcs else None,
-            history=list(state.messages),
-        )
-        self._tier1_disp.emit("post_llm_response_raw", post_ctx)
         if not content.strip() and not tcs:
-            self._tier1_disp.emit("on_empty_response", post_ctx)
+            failure_ctx = self._make_ctx(
+                "on_empty_response", Mount.POST_LLM_RESPONSE,
+                assistant_message=assistant_message,
+                history=list(state.messages),
+            )
+            self._disp.emit("on_empty_response", failure_ctx)
         if not tcs:
-            self._tier1_disp.emit("on_no_tool_call_emitted", post_ctx)
+            no_tc_ctx = self._make_ctx(
+                "on_no_tool_call_emitted", Mount.POST_LLM_RESPONSE,
+                assistant_message=assistant_message,
+                history=list(state.messages),
+            )
+            self._disp.emit("on_no_tool_call_emitted", no_tc_ctx)
 
         # PRE_TOOL_USE: per-call rewrite / block.
         if assistant_message.tool_calls:
-            assistant_message = self._dispatch_pre_tool_use(
+            assistant_message = self._fire_pre_tool_use(
                 assistant_message, state
             )
 
@@ -378,115 +378,83 @@ class ComponentLLMAgent(LLMAgent):
 
     # ---- pre_tool_use -------------------------------------------------------
 
-    def _dispatch_pre_tool_use(self, msg: AssistantMessage,
-                               state) -> AssistantMessage:
+    def _fire_pre_tool_use(self, msg: AssistantMessage,
+                            state) -> AssistantMessage:
+        """For each ToolCall, fire pre_tool_arg_validation then
+        Mount.PRE_TOOL_USE through the unified dispatcher. apply_decision
+        handles REWRITE_TOOL_ARGS (rewrite ctx.tool_call) and BLOCK
+        (mark drop). DEFER falls back to ALLOW."""
         kept: list[ToolCall] = []
         for call in (msg.tool_calls or []):
-            current_args = dict(call.arguments)
-            drop = False
+            initial = ToolCall(
+                id=call.id, name=call.name,
+                arguments=dict(call.arguments),
+                requestor=call.requestor,
+            )
 
-            # Tier-1 pre_tool_arg_validation: narrow phase for deterministic
-            # schema / cross-arg checks. A subscriber may rewrite args via
-            # REWRITE_TOOL_ARGS (handled in _apply_tier1_decision) or BLOCK.
-            arg_ctx = self._make_tier1_ctx(
+            # Narrow schema-check phase first; lets a deterministic
+            # validator rewrite before the main per-mount components fire.
+            arg_ctx = self._make_ctx(
                 "pre_tool_arg_validation", Mount.PRE_TOOL_USE,
-                tool_call=ToolCall(
-                    id=call.id, name=call.name,
-                    arguments=current_args, requestor=call.requestor,
-                ),
+                tool_call=initial,
                 history=list(state.messages),
             )
-            self._tier1_disp.emit("pre_tool_arg_validation", arg_ctx)
-            if arg_ctx.tool_call is not None:
-                current_args = dict(arg_ctx.tool_call.arguments)
-            if arg_ctx.blocked:
-                drop = True
-                if drop:
-                    continue
+            arg_ctx.shared.pop("_tau2_drop_this_tool", None)
+            self._disp.emit("pre_tool_arg_validation", arg_ctx)
+            if arg_ctx.shared.get("_tau2_drop_this_tool"):
+                continue
+            current_call = arg_ctx.tool_call or initial
 
-            for comp in self._by_mount.get(Mount.PRE_TOOL_USE, []):
-                ctx = ComponentContext(
-                    mount=Mount.PRE_TOOL_USE,
-                    tool_call=ToolCall(
-                        id=call.id, name=call.name,
-                        arguments=current_args, requestor=call.requestor,
-                    ),
-                    domain_policy=self.domain_policy,
-                    tool_names=self._tool_names,
-                    history=list(state.messages),
-                    state=self._session_state,
-                )
-                if comp.matcher is not None and not comp.matcher(ctx):
-                    continue
-                decision = comp.handler(ctx)
-                validate_decision(comp.cls, comp.mount, decision.kind)
-                _trace(comp.name, comp.mount, decision.kind,
-                       {"tool": call.name})
-                if decision.kind is DecisionKind.ALLOW:
-                    continue
-                if decision.kind is DecisionKind.REWRITE_TOOL_ARGS:
-                    current_args = dict(decision.payload)
-                elif decision.kind is DecisionKind.BLOCK:
-                    drop = True
-                    break
-                elif decision.kind is DecisionKind.DEFER:
-                    # v1: DEFER falls back to ALLOW; replay queue is future work.
-                    continue
-            if not drop:
-                kept.append(ToolCall(
-                    id=call.id, name=call.name,
-                    arguments=current_args, requestor=call.requestor,
-                ))
+            # Main pre_tool_use phase (mount.value event = "pre_tool_use").
+            main_ctx = self._make_ctx(
+                "pre_tool_use", Mount.PRE_TOOL_USE,
+                tool_call=current_call,
+                history=list(state.messages),
+            )
+            main_ctx.shared.pop("_tau2_drop_this_tool", None)
+            self._disp.emit("pre_tool_use", main_ctx)
+            if main_ctx.shared.get("_tau2_drop_this_tool"):
+                continue
+            kept.append(main_ctx.tool_call or current_call)
+
         return msg.model_copy(update={"tool_calls": kept or None})
 
     # ---- post_llm_response --------------------------------------------------
 
-    def _dispatch_post_llm_response(self, msg: AssistantMessage,
-                                    state) -> AssistantMessage:
-        """Fires per AssistantMessage (with or without tool_calls).
-
-        REWRITE_TOOL_ARGS rewrites the FIRST tool_call's arguments wholesale
-        (gate by matcher if you want per-tool selectivity).
-        BLOCK zeroes the entire tool_calls list.
-        INJECT_CONTEXT appends a SystemMessage to state.system_messages for
-        the next turn.
+    def _fire_post_llm_response(self, msg: AssistantMessage,
+                                 state) -> AssistantMessage:
+        """One emit per AssistantMessage. apply_decision handles:
+          REWRITE_TOOL_ARGS → rewrites ctx.tool_call (the first tool_call),
+                              marks `_tau2_first_tool_call_rewritten`.
+          BLOCK             → marks `_tau2_clear_tool_calls`.
+          INJECT_CONTEXT    → appends to `_tau2_post_llm_injections`.
+        After the emit, apply ctx.shared signals to the AssistantMessage
+        and queue a SystemMessage for the next turn if injections exist.
         """
-        comps = self._by_mount.get(Mount.POST_LLM_RESPONSE, [])
-        if not comps:
+        # Skip the work if no subscriber is interested in this event.
+        if not (self._disp.subscribers("post_llm_response")
+                or self._disp.subscribers("post_llm_response_raw")
+                or self._disp.subscribers("on_length_truncation")):
             return msg
 
-        injections: list[str] = []
-        current_tool_calls = list(msg.tool_calls or [])
-        for comp in comps:
-            ctx = ComponentContext(
-                mount=Mount.POST_LLM_RESPONSE,
+        current_tcs = list(msg.tool_calls or [])
+        for event_name in ("post_llm_response", "post_llm_response_raw"):
+            ctx = self._make_ctx(
+                event_name, Mount.POST_LLM_RESPONSE,
                 assistant_message=msg,
-                tool_call=(current_tool_calls[0] if current_tool_calls else None),
-                domain_policy=self.domain_policy,
-                tool_names=self._tool_names,
+                tool_call=current_tcs[0] if current_tcs else None,
                 history=list(state.messages),
-                state=self._session_state,
             )
-            if comp.matcher is not None and not comp.matcher(ctx):
-                continue
-            decision = comp.handler(ctx)
-            validate_decision(comp.cls, comp.mount, decision.kind)
-            _trace(comp.name, comp.mount, decision.kind, {})
-            if decision.kind is DecisionKind.ALLOW:
-                continue
-            if decision.kind is DecisionKind.BLOCK:
-                current_tool_calls = []
-                break
-            if decision.kind is DecisionKind.REWRITE_TOOL_ARGS and current_tool_calls:
-                head = current_tool_calls[0]
-                current_tool_calls[0] = ToolCall(
-                    id=head.id, name=head.name,
-                    arguments=dict(decision.payload),
-                    requestor=head.requestor,
-                )
-            elif decision.kind is DecisionKind.INJECT_CONTEXT:
-                injections.append(str(decision.payload))
+            ctx.shared.pop("_tau2_clear_tool_calls", None)
+            ctx.shared.pop("_tau2_first_tool_call_rewritten", None)
+            self._disp.emit(event_name, ctx)
 
+            if ctx.shared.get("_tau2_clear_tool_calls"):
+                current_tcs = []
+            elif ctx.shared.get("_tau2_first_tool_call_rewritten") and current_tcs:
+                current_tcs[0] = ctx.tool_call
+
+        injections = ctx.shared.get("_tau2_post_llm_injections") or []
         if injections:
             note = SystemMessage(
                 role="system",
@@ -496,54 +464,47 @@ class ComponentLLMAgent(LLMAgent):
             )
             state.system_messages.append(note)
 
-        if current_tool_calls != list(msg.tool_calls or []):
+        if current_tcs != list(msg.tool_calls or []):
             return msg.model_copy(
-                update={"tool_calls": current_tool_calls or None}
+                update={"tool_calls": current_tcs or None}
             )
         return msg
 
     # ---- post_tool_use ------------------------------------------------------
 
-    def _dispatch_post_tool_use(self, message, state) -> None:
+    def _fire_post_tool_use(self, message, state) -> None:
         ctx_msgs = (message.tool_messages
                     if isinstance(message, MultiToolMessage) else [message])
-        injections: list[str] = []
+        all_injections: list[str] = []
         for tm in ctx_msgs:
-            # Tier-1 post_tool_result_raw + on_tool_error (gated by tm.error).
-            t1 = self._make_tier1_ctx(
+            # Per-ToolMessage: emit raw event, then optional error event,
+            # then the mount.value event for legacy POST_TOOL_USE components.
+            t1 = self._make_ctx(
                 "post_tool_result_raw", Mount.POST_TOOL_USE,
                 incoming_message=tm,
                 history=list(state.messages),
             )
-            self._tier1_disp.emit("post_tool_result_raw", t1)
+            t1.shared.pop("_tau2_post_tool_injections", None)
+            self._disp.emit("post_tool_result_raw", t1)
             if getattr(tm, "error", None):
-                self._tier1_disp.emit("on_tool_error", t1)
-            for fragment in (t1.shared.get("post_llm_inject") or []):
-                injections.append(str(fragment))
+                self._disp.emit("on_tool_error", t1)
 
-
-            ctx = ComponentContext(
-                mount=Mount.POST_TOOL_USE,
+            main = self._make_ctx(
+                "post_tool_use", Mount.POST_TOOL_USE,
                 incoming_message=tm,
-                domain_policy=self.domain_policy,
-                tool_names=self._tool_names,
                 history=list(state.messages),
-                state=self._session_state,
             )
-            for comp in self._by_mount.get(Mount.POST_TOOL_USE, []):
-                if comp.matcher is not None and not comp.matcher(ctx):
-                    continue
-                decision = comp.handler(ctx)
-                validate_decision(comp.cls, comp.mount, decision.kind)
-                _trace(comp.name, comp.mount, decision.kind,
-                       {"tool": getattr(tm, "tool_name", None)})
-                if decision.kind is DecisionKind.INJECT_CONTEXT:
-                    injections.append(str(decision.payload))
-        if injections:
+            self._disp.emit("post_tool_use", main)
+
+            for tag in ("_tau2_post_tool_injections",):
+                all_injections.extend(t1.shared.get(tag, []) or [])
+                all_injections.extend(main.shared.get(tag, []) or [])
+
+        if all_injections:
             note = SystemMessage(
                 role="system",
                 content="<components_post_tool_use>\n" +
-                        "\n\n".join(injections) +
+                        "\n\n".join(all_injections) +
                         "\n</components_post_tool_use>",
             )
             state.system_messages.append(note)
