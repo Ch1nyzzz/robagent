@@ -17,11 +17,13 @@ venv/
 tau2-bench-src/
 google-cloud-sdk/
 Toolathlon-src/
+third_party/                          # nested upstream git repos (EnterpriseOps-Gym, SOP-Bench, ...) — clone/install locally; do not vendor
 
 # --- run data / traces (large, regenerable) ---
 traces/
 tau2-runs/
 Toolathlon-runs/
+results/                              # sopbench / enterpriseops ad-hoc evaluation csv/json outputs
 
 # --- meta_harness run logs (large: proposer sessions, event streams) ---
 meta_harness/logs/
@@ -79,6 +81,10 @@ archive_*/                          # local experiment archives (large, not part
 # --- component runtime trace sink (regenerable per run) ---
 .component-state/
 .component-state-toolathlon/
+.component-state-sopbench/
+
+# --- credentials (never commit) ---
+.gcloud_config/
 
 # legacy hook runtime trace sink (still here in case stragglers appear)
 .hook-state/
@@ -114,3 +120,37 @@ meta_harness/logs_components_toolathlon/*
 !meta_harness/logs_components_toolathlon/proposer_sessions/
 meta_harness/logs_components_toolathlon/proposer_sessions/*
 !meta_harness/logs_components_toolathlon/proposer_sessions/**/log.md
+
+# component-harness-sopbench graph frontier (per domain)
+!meta_harness/logs_components_sopbench_dangerous_goods/
+meta_harness/logs_components_sopbench_dangerous_goods/*
+!meta_harness/logs_components_sopbench_dangerous_goods/frontier_workflow.json
+!meta_harness/logs_components_sopbench_dangerous_goods/frontier_val.json
+!meta_harness/logs_components_sopbench_dangerous_goods/evolution_summary.jsonl
+!meta_harness/logs_components_sopbench_dangerous_goods/pending_eval.json
+!meta_harness/logs_components_sopbench_traffic_spoofing_detection/
+meta_harness/logs_components_sopbench_traffic_spoofing_detection/*
+!meta_harness/logs_components_sopbench_traffic_spoofing_detection/frontier_workflow.json
+!meta_harness/logs_components_sopbench_traffic_spoofing_detection/frontier_val.json
+!meta_harness/logs_components_sopbench_traffic_spoofing_detection/evolution_summary.jsonl
+!meta_harness/logs_components_sopbench_traffic_spoofing_detection/pending_eval.json
+!meta_harness/logs_components_sopbench_warehouse_package_inspection/
+meta_harness/logs_components_sopbench_warehouse_package_inspection/*
+!meta_harness/logs_components_sopbench_warehouse_package_inspection/frontier_workflow.json
+!meta_harness/logs_components_sopbench_warehouse_package_inspection/frontier_val.json
+!meta_harness/logs_components_sopbench_warehouse_package_inspection/evolution_summary.jsonl
+!meta_harness/logs_components_sopbench_warehouse_package_inspection/pending_eval.json
+
+# component-harness-enterpriseops graph frontier (per domain; reserved for future evolution runs)
+!meta_harness/logs_components_enterpriseops_calendar/
+meta_harness/logs_components_enterpriseops_calendar/*
+!meta_harness/logs_components_enterpriseops_calendar/frontier_workflow.json
+!meta_harness/logs_components_enterpriseops_calendar/frontier_val.json
+!meta_harness/logs_components_enterpriseops_calendar/evolution_summary.jsonl
+!meta_harness/logs_components_enterpriseops_calendar/pending_eval.json
+!meta_harness/logs_components_enterpriseops_itsm/
+meta_harness/logs_components_enterpriseops_itsm/*
+!meta_harness/logs_components_enterpriseops_itsm/frontier_workflow.json
+!meta_harness/logs_components_enterpriseops_itsm/frontier_val.json
+!meta_harness/logs_components_enterpriseops_itsm/evolution_summary.jsonl
+!meta_harness/logs_components_enterpriseops_itsm/pending_eval.json
