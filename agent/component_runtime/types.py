@@ -28,6 +28,15 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
+# Shared-across-siblings types: lifted to the unified core in Phase A of
+# the event-runtime migration. ComponentClass / StateScope / Trust are
+# byte-identical (5/5 siblings) so they only live in one place now.
+from meta_harness.component_runtime_core.shared_types import (
+    ComponentClass,
+    StateScope,
+    Trust,
+)
+
 
 # --- enums -------------------------------------------------------------------
 
@@ -50,26 +59,11 @@ class Mount(str, Enum):
     SESSION_END        = "session_end"          # bookkeeping only (v1)
 
 
-class ComponentClass(str, Enum):
-    """Durability classes. Identical semantics to tau2 component runtime."""
-    MECHANISM_LAYER       = "mechanism_layer"
-    REACTIVE_GUARD        = "reactive_guard"
-    CHANNEL               = "channel"
-    INDUCED_RULE          = "induced_rule"          # advisory-only via policy.py
-    PREDICTIVE_HEURISTIC  = "predictive_heuristic"  # load-time rejected
-
-
 class DecisionKind(str, Enum):
     ALLOW          = "allow"
     BLOCK          = "block"            # mark blocked; answer→None with reason
     REWRITE        = "rewrite"          # replace live payload (prompt / response / answer per mount)
     INJECT_CONTEXT = "inject_context"   # append text to system_prompt (PRE) or as recovery context (POST)
-
-
-class StateScope(str, Enum):
-    NONE          = "none"
-    SESSION       = "session"           # per-task scratchpad in ctx.state[component_name]
-    CROSS_SESSION = "cross_session"     # reserved
 
 
 class Capability(str, Enum):
@@ -114,20 +108,6 @@ class Decision:
         or to the next recovery LLM call's context (POST_LLM_RESPONSE).
         """
         return Decision(DecisionKind.INJECT_CONTEXT, payload=text)
-
-
-# --- trust -------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Trust:
-    """Same shape as tau2 Trust: required evidence_anchor / blast_radius /
-    rollback_when; out_of_evidence_probe required for INDUCED_RULE."""
-    evidence_anchor: str
-    blast_radius: str               # local | workflow | global
-    rollback_when: str
-    out_of_evidence_probe: str = ""  # REQUIRED for INDUCED_RULE
-    fallback: str = ""               # OPTIONAL
 
 
 # --- context -----------------------------------------------------------------

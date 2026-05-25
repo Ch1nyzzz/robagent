@@ -20,6 +20,15 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
+# Shared-across-siblings types: lifted to the unified core in Phase A of
+# the event-runtime migration. ComponentClass / StateScope / Trust are
+# byte-identical (5/5 siblings) so they only live in one place now.
+from meta_harness.component_runtime_core.shared_types import (
+    ComponentClass,
+    StateScope,
+    Trust,
+)
+
 
 # --- enums -------------------------------------------------------------------
 
@@ -45,26 +54,11 @@ class Mount(str, Enum):
     SESSION_END        = "session_end"          # bookkeeping
 
 
-class ComponentClass(str, Enum):
-    """Durability classes. Identical semantics to GAIA / tau2 sibling runtimes."""
-    MECHANISM_LAYER       = "mechanism_layer"
-    REACTIVE_GUARD        = "reactive_guard"
-    CHANNEL               = "channel"
-    INDUCED_RULE          = "induced_rule"          # advisory-only via policy.py
-    PREDICTIVE_HEURISTIC  = "predictive_heuristic"  # load-time rejected
-
-
 class DecisionKind(str, Enum):
     ALLOW          = "allow"
     BLOCK          = "block"            # terminate loop / drop tool call
     REWRITE        = "rewrite"          # replace mount-specific in-flight payload
     INJECT_CONTEXT = "inject_context"   # append text into system_prompt or post-llm inject queue
-
-
-class StateScope(str, Enum):
-    NONE          = "none"
-    SESSION       = "session"           # per-task scratchpad in ctx.state[component_name]
-    CROSS_SESSION = "cross_session"     # reserved; not enforced in v1
 
 
 class Capability(str, Enum):
@@ -117,19 +111,6 @@ class Decision:
         system reminder message before the next chat call.
         """
         return Decision(DecisionKind.INJECT_CONTEXT, payload=text)
-
-
-# --- trust -------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Trust:
-    """Same shape as GAIA / tau2 Trust."""
-    evidence_anchor: str
-    blast_radius: str               # local | workflow | global
-    rollback_when: str
-    out_of_evidence_probe: str = ""  # REQUIRED for INDUCED_RULE
-    fallback: str = ""               # OPTIONAL
 
 
 # --- context -----------------------------------------------------------------

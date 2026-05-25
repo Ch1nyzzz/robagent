@@ -28,6 +28,15 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
+# Shared-across-siblings types: lifted to the unified core in Phase A of
+# the event-runtime migration. ComponentClass / StateScope / Trust are
+# byte-identical (5/5 siblings) so they only live in one place now.
+from meta_harness.component_runtime_core.shared_types import (
+    ComponentClass,
+    StateScope,
+    Trust,
+)
+
 
 # --- enums -------------------------------------------------------------------
 
@@ -54,46 +63,12 @@ class Mount(str, Enum):
     SESSION_END         = "session_end"           # reserved
 
 
-class ComponentClass(str, Enum):
-    """Durability classes admissible into a Component.
-
-    The matcher's predicate decides the class — you do not assert it:
-
-      * MECHANISM_LAYER: tests a system field, a tool-declared schema, a
-        protocol invariant, or a general algorithm. Off-evidence facts.
-      * REACTIVE_GUARD: tests an observed failure event (tool.failed,
-        malformed call, empty/looping turn). Self-disables when the model
-        stops failing.
-      * CHANNEL: tests task structure to fetch external content the agent
-        cannot otherwise reach (file, URL, KB doc).
-      * INDUCED_RULE: advisory-only. Matcher reads a compiled policy
-        interpretation from N evidence sims; runtime restricts to
-        PRE_CONTEXT_BUILD / USER_PROMPT_SUBMIT + decision = INJECT_CONTEXT.
-        The LLM still makes the final call.
-      * PREDICTIVE_HEURISTIC: matcher tests raw prompt text. Structurally
-        unsafe even as advisory; load-time rejected by policy.py. Declared
-        here so YAML manifests containing the string round-trip cleanly.
-    """
-    MECHANISM_LAYER       = "mechanism_layer"
-    REACTIVE_GUARD        = "reactive_guard"
-    CHANNEL               = "channel"
-    INDUCED_RULE          = "induced_rule"
-    PREDICTIVE_HEURISTIC  = "predictive_heuristic"
-
-
 class DecisionKind(str, Enum):
     ALLOW = "allow"
     BLOCK = "block"                       # drop the tool_call / raise / terminate
     REWRITE_TOOL_ARGS = "rewrite_tool_args"
     DEFER = "defer"                       # postpone the call until predicate fires
     INJECT_CONTEXT = "inject_context"     # append text to prompt / state
-
-
-class StateScope(str, Enum):
-    """Lifetime of any per-Component scratchpad."""
-    NONE          = "none"            # pure function of ctx
-    SESSION       = "session"         # ctx.state[component_name] per simulation
-    CROSS_SESSION = "cross_session"   # persisted to .component-state/<tag>/<name>.json (reserved; not enforced in v1)
 
 
 class Capability(str, Enum):
@@ -138,24 +113,6 @@ class Decision:
     @staticmethod
     def inject_context(text: str) -> "Decision":
         return Decision(DecisionKind.INJECT_CONTEXT, payload=text)
-
-
-# --- trust -------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Trust:
-    """Component verification block.
-
-    `evidence_anchor`, `blast_radius`, and `rollback_when` are required for
-    every Component. `out_of_evidence_probe` is additionally required for
-    INDUCED_RULE — `policy.validate_trust` enforces this at load time.
-    """
-    evidence_anchor: str
-    blast_radius: str               # local | workflow | global
-    rollback_when: str
-    out_of_evidence_probe: str = ""  # REQUIRED for INDUCED_RULE
-    fallback: str = ""               # optional; empty when matcher is always-on
 
 
 # --- context -----------------------------------------------------------------

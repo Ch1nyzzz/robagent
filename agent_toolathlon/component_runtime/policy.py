@@ -27,14 +27,22 @@ this as a hard bug, not a fallback.
 
 INDUCED_RULE also requires `trust.out_of_evidence_probe` to be non-empty
 — see `validate_trust` below.
+
+Phase A of the event-runtime migration moved the validator logic into
+`meta_harness.component_runtime_core.policy`. This module keeps the
+toolathlon-specific `ALLOWED` matrix + DISABLED_MOUNTS_V1 list and
+wraps the core validators.
 """
 from __future__ import annotations
 
-from .types import ComponentClass, DecisionKind, Mount, Trust
+from meta_harness.component_runtime_core.policy import (  # noqa: F401
+    ComponentPolicyError,
+    validate_decision as _core_validate_decision,
+    validate_registration as _core_validate_registration,
+    validate_trust,
+)
 
-
-class ComponentPolicyError(RuntimeError):
-    """Raised when a Component registration or emitted decision is not permitted."""
+from .types import ComponentClass, DecisionKind, Mount
 
 
 _ALLOW = {DecisionKind.ALLOW}
@@ -83,60 +91,15 @@ DISABLED_MOUNTS_V1: frozenset[Mount] = frozenset({Mount.POST_LLM_RESPONSE})
 
 
 def validate_registration(cls: ComponentClass, mount: Mount) -> None:
-    """Reject Component registration if its class cannot attach to that mount."""
-    if cls is ComponentClass.PREDICTIVE_HEURISTIC:
-        raise ComponentPolicyError(
-            "predictive_heuristic is not admissible: matcher tests raw prompt "
-            "text, which is structurally unsafe even as advisory injection. "
-            "Redesign so the matcher tests structure (system field / tool "
-            "schema / protocol invariant / general algorithm) or do not write "
-            "this component."
-        )
+    """toolathlon-specific extension: reject `DISABLED_MOUNTS_V1` (v2 SDK
+    gap) before delegating to the shared core validator."""
     if mount in DISABLED_MOUNTS_V1:
         raise ComponentPolicyError(
             f"mount {mount.value!r} is not dispatched in toolathlon v1 "
             f"(SDK does not surface the required hook). See policy.py."
         )
-    if mount not in ALLOWED.get(cls, {}):
-        raise ComponentPolicyError(
-            f"class {cls.value!r} cannot attach to mount {mount.value!r}; "
-            f"allowed mounts for this class: "
-            f"{[m.value for m in ALLOWED.get(cls, {}).keys()]}"
-        )
+    _core_validate_registration(cls, mount, ALLOWED)
 
 
 def validate_decision(cls: ComponentClass, mount: Mount, kind: DecisionKind) -> None:
-    allowed = ALLOWED.get(cls, {}).get(mount, set())
-    if kind not in allowed:
-        raise ComponentPolicyError(
-            f"class {cls.value!r} component on mount {mount.value!r} emitted "
-            f"decision {kind.value!r}; allowed: {[k.value for k in allowed]}"
-        )
-
-
-def validate_trust(cls: ComponentClass, trust: Trust) -> None:
-    """Enforce required trust fields per class."""
-    if not trust.evidence_anchor.strip():
-        raise ComponentPolicyError(
-            "trust.evidence_anchor is required: name the stable structure "
-            "(system field, tool schema, protocol invariant, general algorithm) "
-            "that this component anchors on, OUTSIDE your evidence sims."
-        )
-    if not trust.blast_radius.strip():
-        raise ComponentPolicyError(
-            "trust.blast_radius is required: local | workflow | global."
-        )
-    if not trust.rollback_when.strip():
-        raise ComponentPolicyError(
-            "trust.rollback_when is required: an observable condition under "
-            "which the component is provably dead weight or actively harmful."
-        )
-    if cls is ComponentClass.INDUCED_RULE and not trust.out_of_evidence_probe.strip():
-        raise ComponentPolicyError(
-            "INDUCED_RULE requires trust.out_of_evidence_probe — name one "
-            "concrete case NOT in your evidence sims where the matcher would "
-            "fire, and state what the handler returns on it. If you cannot "
-            "construct such a case, the rule is induced from finite evidence "
-            "and overfits by construction. Either redesign as MECHANISM_LAYER "
-            "/ REACTIVE_GUARD / CHANNEL, or do not write this component."
-        )
+    _core_validate_decision(cls, mount, kind, ALLOWED)
