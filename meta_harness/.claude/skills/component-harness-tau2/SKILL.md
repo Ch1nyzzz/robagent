@@ -209,7 +209,7 @@ Component fires land in `.component-state/iter<N>/fired.jsonl` for the durabilit
   cp agent_tau2/components/<existing>.py agent_tau2/components/<existing>.py.bak_iter<N>
   ```
   before overwriting the file. The outer loop relies on this `.bak` to roll back on reject.
-- READ-ONLY paths: `tau2-bench-src/`, `tau2_runner.py`, `meta_harness/*`, `agent_tau2/v0/`, `agent_tau2/component_runtime/`, all earlier `agent_tau2/components/*.py` (you may only modify by `replace_node` which goes through the .bak protocol), all `agent_tau2/mh_tau2_iter*/`, all `meta_harness/logs_tau2_*/` directories EXCEPT `logs_tau2_components/`. The proposer harness physically hides forbidden paths during your run.
+- READ-ONLY paths: `tau2-bench-src/`, `tau2_runner.py`, `meta_harness/*`, `agent_tau2/v0/`, `agent_tau2/component_runtime/`, all earlier `agent_tau2/components/*.py` (you may only modify by `replace_node` which goes through the .bak protocol), all `meta_harness/logs_tau2_*/` directories EXCEPT `logs_tau2_components/`. The proposer harness physically hides forbidden paths during your run.
 - You may NOT create a new agent directory. Your only file writes are: ONE component file under `agent_tau2/components/<name>.py` (+ its `.bak_iter<N>` for replace_node) and the `pending_eval.json` manifest. The workflow patch metadata lives INSIDE `pending_eval.json` — the outer loop applies it to `tau2_main.yaml`.
 
 ## Component file interface
@@ -493,7 +493,7 @@ a custom event, add a string-key entry to `ALLOWED[ComponentClass.X]` in
 ## What this skill does NOT do
 
 - Run the tau2 simulator (the outer loop does).
-- Modify `tau2-bench-src/`, the eval, the model, `tau2_runner.py`, `meta_harness/`, `agent_tau2/v0/`, `agent_tau2/component_runtime/`, prior component files (except via `replace_node` + `.bak` protocol), or any earlier `agent_tau2/mh_tau2_iter*/`.
+- Modify `tau2-bench-src/`, the eval, the model, `tau2_runner.py`, `meta_harness/`, `agent_tau2/v0/`, `agent_tau2/component_runtime/`, prior component files (except via `replace_node` + `.bak` protocol).
 - Build a full `LLMAgent` subclass (that pattern was retired in favour of components).
 - Build a hook (the hook system was retired; components subsume it).
 - Task-specific hardcoding — encoding gold answers or branches keyed to specific task ids.

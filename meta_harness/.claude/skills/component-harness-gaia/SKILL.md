@@ -9,7 +9,15 @@ Run ONE iteration of agent evolution against GAIA by proposing ONE **workflow gr
 
 ## Why workflow graph (vs. the prior robust skill)
 
-`robust-harness-gaia` produced one full `agent/mh_iter*_<slug>/base.py` per iteration — a monolithic `run_task` carrying every prior intervention. Two interventions couldn't stack in one iter; the frontier was a single agent, not a set of mechanisms. `RESULTS.md §6.4` argued the right shape for interpretation-bound benchmarks is "give the LLM a sturdier shell rather than compile policy into code" — i.e. composable mechanisms, not monolithic agents.
+The legacy `robust-harness-gaia` predecessor produced one full
+`agent/mh_iter*_<slug>/base.py` per iteration — a monolithic `run_task`
+carrying every prior intervention. Two interventions couldn't stack in
+one iter; the frontier was a single agent, not a set of mechanisms.
+`RESULTS.md §6.4` argued the right shape for interpretation-bound
+benchmarks is "give the LLM a sturdier shell rather than compile policy
+into code" — i.e. composable mechanisms, not monolithic agents. The
+`agent/mh_iter*/` directories themselves have been removed; only
+`RESULTS.md` retains the historical reference.
 
 `component-harness-gaia` builds candidates as **components** attached to defined lifecycle points of the GAIA `run_task` function. The base runner is `agent/component_runtime/base.py` (verbatim, runtime); the frontier is the **set of components** whose names appear in `meta_harness/workflows/gaia_main.yaml`. Adding, modifying, and disabling a component are first-class operations of one iteration.
 
@@ -144,7 +152,7 @@ Plus a JSON snapshot `meta_harness/logs_components_gaia/frontier_workflow.json` 
   cp agent/components/<existing>.py agent/components/<existing>.py.bak_iter<N>
   ```
   The outer loop relies on the `.bak` to roll back on reject.
-- READ-ONLY: `bench/`, `evals.lock`, `agent/base.py`, all `agent/v*/`, all `agent/mh_iter*/`, `agent/component_runtime/`, all earlier `agent/components/*.py`, `run_benchmark.py`, `agent/llm.py`, `agent/events.py`, all of `meta_harness/` (the outer loop reads your output; you do not modify the loop).
+- READ-ONLY: `bench/`, `evals.lock`, `agent/base.py`, all `agent/v*/`, `agent/component_runtime/`, all earlier `agent/components/*.py`, `run_benchmark.py`, `agent/llm.py`, `agent/events.py`, all of `meta_harness/` (the outer loop reads your output; you do not modify the loop).
 - You may NOT create a new agent directory. Your only file writes are: ONE component file under `agent/components/<name>.py` (+ its `.bak_iter<N>` for replace_node) and the `pending_eval.json` manifest.
 
 ## Component file interface
@@ -417,7 +425,7 @@ Augments the Common Patterns table above:
 ## What this skill does NOT do
 
 - Run benchmarks (the outer loop runs `run_benchmark.py` on train-30).
-- Modify the eval rubric, `agent/component_runtime/`, prior `agent/components/*.py` (except via `replace_node`), or any `agent/v*/` / `agent/mh_iter*/`.
+- Modify the eval rubric, `agent/component_runtime/`, prior `agent/components/*.py` (except via `replace_node`), or any `agent/v*/`.
 - Build a new agent directory (that pattern was retired in favour of components).
 - Loop or propose multiple patches in one invocation.
 - Encode a policy interpretation as a mechanism_layer override — route to induced_rule + inject_context only.

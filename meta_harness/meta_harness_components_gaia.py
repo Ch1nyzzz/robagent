@@ -160,7 +160,7 @@ Steps:
 CRITICAL:
   - Do NOT run benchmarks. Do NOT modify bench/, run_benchmark.py,
     meta_harness/*, agent/base.py, agent/component_runtime/, agent/llm.py,
-    agent/events.py, or any earlier agent/v*/ / agent/mh_iter*/ / agent/components/
+    agent/events.py, or any earlier agent/v*/ / agent/components/
     (except via replace_node with the .bak protocol).
   - Do NOT build a new agent directory under agent/. This skill only
     writes component files (under agent/components/) and workflow_patch
@@ -168,10 +168,9 @@ CRITICAL:
   - **Isolation invariant**: this proposer runs inside a docker container
     whose filesystem only contains the paths the gaia skill is allowed to
     see. Sibling skill logs (logs_components_toolathlon/, logs_components_tau2/,
-    logs_components_sopbench_*/), legacy candidates (agent/mh_iter*), and
-    legacy frontier logs (logs_robust*, logs_baseline*, logs_tau2_*) simply
-    do not exist in the container. If you encounter such a path,
-    _proposer_docker.py has a manifest bug — do not read it.
+    logs_components_sopbench_*/) simply do not exist in the container. If
+    you encounter such a path, _proposer_docker.py has a manifest bug
+    — do not read it.
   - No task-specific hardcoding. No entity names or task ids in code.
 
 NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):

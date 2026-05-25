@@ -205,7 +205,7 @@ Steps:
   6. Write {PENDING_EVAL.relative_to(ROOT)} with this JSON schema:
        {{
          "candidate": {{
-           "name": "mh_iter{iteration}_<slug>",
+           "name": "candidate_iter{iteration}_<slug>",
            "hypothesis": "...",
            "changes": "...",
            "component": {{

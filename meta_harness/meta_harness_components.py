@@ -188,10 +188,8 @@ CRITICAL:
     workflow_patch metadata in pending_eval.json.
   - **Isolation invariant**: this proposer runs inside a docker container
     whose filesystem only contains the paths the tau2 skill is allowed to
-    see. Legacy candidates (agent_tau2/mh_tau2_iter*), legacy frontier
-    logs (meta_harness/logs_tau2_baseline/, logs_tau2_robust/), and sibling
-    skill state (meta_harness/logs_components_{{gaia,toolathlon,sopbench_*}}/,
-    agent_toolathlon/, agent/) simply do not exist in the container. If
+    see. Sibling skill state (meta_harness/logs_components_{{gaia,toolathlon,sopbench_*}}/,
+    agent_toolathlon/, agent/) simply does not exist in the container. If
     you encounter such a path, _proposer_docker.py has a manifest bug
     — do not read it.
   - No task-specific hardcoding. No customer names / order ids in code.

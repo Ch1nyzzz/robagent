@@ -297,8 +297,8 @@ Steps:
 
 CRITICAL:
   - Do NOT run benchmarks. Do NOT modify Toolathlon-src/, bench/toolathlon/,
-    toolathlon_runner.py, agent_toolathlon/runtime/, agent_toolathlon/v0/,
-    agent_toolathlon/cr/, agent_toolathlon/component_runtime/ (the runtime
+    toolathlon_runner.py, agent_toolathlon/v0/,
+    agent_toolathlon/component_runtime/ (the runtime
     itself is locked; you only write components in
     {COMPONENTS_DIR.relative_to(ROOT)}/).
   - The target inference model (deepseek-v4-pro via Together AI) is

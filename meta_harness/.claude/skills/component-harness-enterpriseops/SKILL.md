@@ -221,7 +221,7 @@ The outer loop reads this file after your run. Write it once, validated.
 ```json
 {
   "candidate": {
-    "name": "mh_iter<N>_<slug>",
+    "name": "candidate_iter<N>_<slug>",
     "hypothesis": "one-sentence claim of what the failure mode is",
     "changes": "one-sentence description of what your component does",
     "component": {

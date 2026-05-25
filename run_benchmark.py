@@ -18,15 +18,14 @@ from bench.tau2bench.scorer import score_baseline as tau2_score
 
 
 def _resolve_run_task(agent_version: str):
-    """Resolve `run_task` from `agent.base` (v0), `agent.v{N}.base`,
-    `agent.<name>.base` (meta-harness), or `agent.component_runtime.base`
+    """Resolve `run_task` from `agent.base` (v0), `agent.v{N}.base`
+    (legacy LangGraph baselines v1-v14, preserved as RESULTS.md
+    cross-version references), or `agent.component_runtime.base`
     (the fixed graph runtime; active component set from workflow YAML)."""
     if agent_version in ("0", "v0", "base", None, ""):
         mod = importlib.import_module("agent.base")
     elif agent_version == "component_runtime":
         mod = importlib.import_module("agent.component_runtime.base")
-    elif agent_version.startswith("mh"):
-        mod = importlib.import_module(f"agent.{agent_version}.base")
     else:
         v = agent_version if agent_version.startswith("v") else f"v{agent_version}"
         mod = importlib.import_module(f"agent.{v}.base")

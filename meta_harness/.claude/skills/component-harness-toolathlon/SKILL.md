@@ -159,7 +159,7 @@ Plus a JSON snapshot `meta_harness/logs_components_toolathlon/frontier_workflow.
   cp agent_toolathlon/components/<existing>.py agent_toolathlon/components/<existing>.py.bak_iter<N>
   ```
   The outer loop relies on the `.bak` to roll back on reject.
-- READ-ONLY (do not modify): `Toolathlon-src/`, `bench/toolathlon/`, `toolathlon_runner.py`, `agent_toolathlon/runtime/`, `agent_toolathlon/v0/`, `agent_toolathlon/cr/`, `agent_toolathlon/component_runtime/` (the runtime itself is locked; you only write to `agent_toolathlon/components/`). Also: `meta_harness/meta_harness_components_toolathlon.py`, `meta_harness/toolathlon_*.txt`.
+- READ-ONLY (do not modify): `Toolathlon-src/`, `bench/toolathlon/`, `toolathlon_runner.py`, `agent_toolathlon/v0/`, `agent_toolathlon/component_runtime/` (the runtime itself is locked; you only write to `agent_toolathlon/components/`). Also: `meta_harness/meta_harness_components_toolathlon.py`, `meta_harness/toolathlon_*.txt`.
 - Component file naming: `agent_toolathlon/components/component_iter<N>_<slug>.py`. The `COMPONENT.name` should follow the same `component_iter<N>_<slug>` pattern (helps audit which iter introduced it).
 
 ## Component file template
@@ -214,7 +214,7 @@ The outer loop reads this file after your run. Write it once, validated.
 ```json
 {
   "candidate": {
-    "name": "mh_toolathlon_iter<N>_<slug>",
+    "name": "candidate_toolathlon_iter<N>_<slug>",
     "hypothesis": "one-sentence claim of what the failure mode is",
     "changes": "one-sentence description of what your component does",
     "component": {
@@ -374,6 +374,6 @@ decisions on a custom event, add a string-key entry to
 
 - Components that memorise train-set answers (encode "if task instruction contains 'Alita', return paper_id=2505.20286").
 - Components that try to compute the final answer deterministically without calling the LLM (defeats the SUT measurement).
-- Components that touch `toolathlon_runner.py`, `Toolathlon-src/`, `agent_toolathlon/component_runtime/`, or `agent_toolathlon/runtime/`.
+- Components that touch `toolathlon_runner.py`, `Toolathlon-src/`, or `agent_toolathlon/component_runtime/`.
 - Components that need POST_LLM_RESPONSE or DEFER — load-time rejected in v2 (v2.5 / v3).
 - Components that fire on EVERY task (priority=0 with always-True matcher) — that's effectively a prompt rewrite, not a component. Use a matcher that anchors on a stable structural predicate.
