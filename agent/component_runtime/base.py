@@ -1,22 +1,22 @@
 """GAIA component runtime entry point: `run_task` wrapped with dispatch chain.
 
-The `run_benchmark.py::_resolve_run_task` resolver imports
-`agent.component_runtime.base::run_task` when invoked with
-`--agent-version component_runtime`. The function signature is identical
-to `agent/base.py::run_task` so the orchestrator does not change.
+Same FC loop and tools as `agent/base.py` — the baseline IS the protagonist;
+this module just sprinkles dispatcher.emit calls at each lifecycle anchor so
+registered components can stabilize the loop's behavior. Setup events fire
+once per task; pre_llm_request / post_llm_response / on_length_truncation /
+on_empty_response fire once PER FC TURN; pre_tool_use / post_tool_use /
+on_tool_error fire once PER TOOL CALL within a turn.
 
-Composition: at each lifecycle event, every active component's matcher
-is queried; matching handlers run in priority order; their Decisions
-mutate the in-flight state (system_prompt / prompt / raw_response /
-answer) per the policy matrix. Component fires append one row per fire
-to `.component-state/<run_tag>/fired.jsonl` for the durability audit.
+`run_benchmark.py::_resolve_run_task` imports this module when invoked with
+`--agent-version component_runtime`. Function signature matches
+`agent/base.py::run_task` so the orchestrator does not change.
+
+Decisions mutate ctx in-place per the policy matrix. Component fires append
+one row per fire to `.component-state/<run_tag>/fired.jsonl` for the
+durability audit.
 
 Workflow source on disk:
-  meta_harness/workflows/gaia_main.yaml  (default; override with COMPONENT_WORKFLOW env var)
-
-Active component set is the workflow's `active_nodes()` (i.e. excluding
-`disabled:`). The outer loop is responsible for keeping the YAML in sync
-with the accepted frontier; this runtime trusts it.
+  meta_harness/workflows/gaia_main.yaml  (default; override via COMPONENT_WORKFLOW)
 """
 from __future__ import annotations
 
@@ -26,8 +26,15 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from agent.base import (
+    MAX_ITERATIONS,
+    PER_TURN_MAX_TOKENS,
+    SYSTEM_PROMPT,
+    _extract_final_answer,
+)
 from agent.events import EventLog, new_run_id, traces_dir
 from agent.llm import chat, DEFAULT_MODEL
+from agent.tools import TOOL_SPECS, dispatch_tool
 from meta_harness.component_runtime_core.dispatcher import Dispatcher
 
 from .policy import ComponentPolicyError, validate_decision
@@ -43,13 +50,9 @@ from .workflow import Workflow
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_WORKFLOW = ROOT / "meta_harness" / "workflows" / "gaia_main.yaml"
 
-SYSTEM_PROMPT = (
-    "You are an assistant solving a single benchmark task. "
-    "Read the task carefully and produce the final answer only. "
-    "Do not include explanations, prefixes, or extra text. "
-    "If the expected answer is a number, output the number only. "
-    "If the expected answer is a short string, output that string only."
-)
+# SYSTEM_PROMPT, MAX_ITERATIONS, PER_TURN_MAX_TOKENS, _extract_final_answer
+# imported from agent.base — single source of truth so the component runtime
+# scores against the SAME baseline the proposer's hooks aim to stabilize.
 
 
 # --- trace sink --------------------------------------------------------------
@@ -137,6 +140,17 @@ def _validate_for_dispatcher(comp: Component, event_name: str,
     validate_decision(comp.cls, event_name, kind)
 
 
+_SETUP_EVENTS = frozenset({
+    "session_start", "pre_prompt_build", "pre_context_build",
+    "task_received", "pre_agent_construct", "pre_llm_request",
+})
+
+_RAW_RESPONSE_EVENTS = frozenset({
+    "post_llm_response", "post_llm_response_raw",
+    "on_length_truncation", "on_empty_response",
+})
+
+
 def _apply_decision(ctx: ComponentContext, decision: "Decision",  # noqa: F821
                     comp: Component) -> bool:
     """Mutate ctx per Decision; return True to stop firing remaining
@@ -144,16 +158,26 @@ def _apply_decision(ctx: ComponentContext, decision: "Decision",  # noqa: F821
 
     Event → side-effect mapping:
 
-      INJECT_CONTEXT @ pre-LLM events  → append to ctx.system_prompt
-                       (session_start, pre_prompt_build, pre_context_build,
-                        task_received, pre_agent_construct, pre_llm_request)
+      INJECT_CONTEXT @ setup events    → append to ctx.system_prompt
       INJECT_CONTEXT @ post-LLM events → push onto ctx.shared['post_llm_inject']
-                       (post_llm_response[_raw], on_length_truncation, on_empty_response)
-      REWRITE @ pre_prompt_build / pre_context_build → ctx.prompt
-      REWRITE @ post_llm_response[_raw] /
-                 on_length_truncation / on_empty_response → ctx.raw_response
-      REWRITE @ pre_answer_emit                       → ctx.answer (None = blocked)
-      BLOCK   @ any                                   → ctx.blocked + stop=True
+                                          (replayed as a system note next turn)
+      INJECT_CONTEXT @ post_tool_use /
+                       on_tool_error    → concatenated INTO ctx.current_tool_result
+                                          so the LLM sees it on the next turn
+      INJECT_CONTEXT @ pre_tool_use    → queued on ctx.shared['post_llm_inject']
+                                          (advisory only; tool still runs)
+
+      REWRITE @ pre_prompt_build /
+                pre_context_build       → ctx.prompt (str)
+      REWRITE @ raw-response events     → ctx.raw_response (str)
+      REWRITE @ pre_tool_use            → ctx.current_tool_args (dict)
+      REWRITE @ post_tool_use /
+                on_tool_error           → ctx.current_tool_result (str)
+      REWRITE @ pre_answer_emit         → ctx.answer (None = blocked)
+
+      BLOCK @ pre_tool_use              → skip THIS tool call (task continues);
+                                          tool result = "[skipped by <comp>]"
+      BLOCK @ any other event           → terminate task (ctx.blocked + stop)
     """
     event = ctx.event or ""
     kind = decision.kind
@@ -161,15 +185,11 @@ def _apply_decision(ctx: ComponentContext, decision: "Decision",  # noqa: F821
         return False
     if kind is DecisionKind.INJECT_CONTEXT:
         text = str(decision.payload or "")
-        if event in (
-            "session_start",
-            "pre_prompt_build",
-            "pre_context_build",
-            "task_received",
-            "pre_agent_construct",
-            "pre_llm_request",
-        ):
+        if event in _SETUP_EVENTS:
             ctx.system_prompt = (ctx.system_prompt + "\n\n" + text).strip()
+        elif event in ("post_tool_use", "on_tool_error"):
+            base = ctx.current_tool_result or ""
+            ctx.current_tool_result = (base + "\n\n" + text).strip() if base else text
         else:
             ctx.shared.setdefault("post_llm_inject", []).append(text)
         return False
@@ -177,17 +197,23 @@ def _apply_decision(ctx: ComponentContext, decision: "Decision",  # noqa: F821
         payload = decision.payload
         if event in ("pre_prompt_build", "pre_context_build"):
             ctx.prompt = str(payload or "")
-        elif event in (
-            "post_llm_response",
-            "post_llm_response_raw",
-            "on_length_truncation",
-            "on_empty_response",
-        ):
+        elif event in _RAW_RESPONSE_EVENTS:
             ctx.raw_response = str(payload or "")
+        elif event == "pre_tool_use":
+            if isinstance(payload, dict):
+                ctx.current_tool_args = payload
+        elif event in ("post_tool_use", "on_tool_error"):
+            ctx.current_tool_result = "" if payload is None else str(payload)
         elif event == "pre_answer_emit":
             ctx.answer = None if payload is None else str(payload)
         return False
     if kind is DecisionKind.BLOCK:
+        if event == "pre_tool_use":
+            # Per-tool skip — task continues. Signal stored in shared for the
+            # FC loop to read after dispatcher.emit("pre_tool_use", ctx) returns.
+            ctx.shared["_skip_current_tool"] = True
+            ctx.shared["_skip_reason"] = decision.reason or f"{comp.name}: block"
+            return True
         ctx.blocked = True
         ctx.blocked_reason = decision.reason or f"{comp.name}: block"
         return True
@@ -214,14 +240,14 @@ def _make_chat_impl():
     return _impl
 
 
-def _wire_capabilities(ctx: ComponentContext, dispatcher: Dispatcher) -> None:
-    """Attach per-sibling capability implementations to the ctx. None for
-    fetch / read_file (gaia v1 does not expose those — components that
-    declare HTTP_GET / READ_FILE still get the structural contract via
-    the manifest, but the runtime stub will raise if called)."""
+def _wire_ctx_helpers(ctx: ComponentContext, dispatcher: Dispatcher) -> None:
+    """Wire the per-task ctx helper methods. The baseline FC loop owns
+    file_read / url_fetch / web_search as registered tools; ctx.fetch /
+    ctx.read_file stay None — components that need to read a file directly
+    can still use the standard library or invoke the underlying tool function.
+    """
     ctx._impl_chat = _make_chat_impl()
     ctx._impl_emit = lambda name, fields: dispatcher.emit(name, ctx)
-    # ctx._impl_fetch / _impl_read_file intentionally left None for gaia v1.
 
 
 
@@ -259,7 +285,7 @@ def run_task(
         prompt=task_prompt,
         log=log,
     )
-    _wire_capabilities(ctx, dispatcher)
+    _wire_ctx_helpers(ctx, dispatcher)
 
     def _blocked_return(stage: str) -> dict[str, Any]:
         log.emit("agent.blocked", parent=root,
@@ -298,70 +324,147 @@ def run_task(
     if ctx.blocked:
         return _blocked_return("pre_agent_construct")
 
-    messages = [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": ctx.system_prompt},
         {"role": "user", "content": ctx.prompt or ""},
     ]
 
-    # Tier-1 pre_llm_request: anything wired to react just before the SUT call.
-    dispatcher.emit("pre_llm_request", ctx)
-    if ctx.blocked:
-        return _blocked_return("pre_llm_request")
+    last_result: dict[str, Any] | None = None
+    iteration = 0
 
-    call = log.emit("llm.requested", parent=root, messages=messages,
-                    model=DEFAULT_MODEL)
+    # --- FC loop -------------------------------------------------------------
+    for iteration in range(1, MAX_ITERATIONS + 1):
+        ctx.current_iter = iteration
 
-    try:
-        result = chat(messages=messages)
-    except Exception as e:
-        log.emit("llm.failed", parent=call, error=repr(e))
-        log.emit("run.failed", parent=root, error=repr(e))
-        log.close()
-        return {"run_id": run_id, "answer": None, "error": repr(e),
-                "trace_path": str(log.path)}
-
-    log.emit(
-        "llm.responded",
-        parent=call,
-        content=result["content"],
-        finish_reason=result["finish_reason"],
-        usage=result["usage"],
-    )
-    ctx.raw_response = result.get("content") or ""
-    ctx.shared["finish_reason"] = result.get("finish_reason")
-
-    # Legacy POST_LLM_RESPONSE + Tier-1 post_llm_response_raw twin emit.
-    dispatcher.emit("post_llm_response", ctx)
-    if ctx.blocked:
-        return _blocked_return("post_llm_response")
-    dispatcher.emit("post_llm_response_raw", ctx)
-    if ctx.blocked:
-        return _blocked_return("post_llm_response_raw")
-
-    # Tier-1 failure-mode events — synthesised from the response shape so
-    # components can attach narrowly (e.g. length_recovery_guard hooks
-    # `on_length_truncation` instead of post_llm_response with a finish_reason
-    # matcher). Both gates are independent: an empty response with
-    # finish_reason=length fires both.
-    if (result.get("finish_reason") or "") == "length":
-        dispatcher.emit("on_length_truncation", ctx)
+        # Per-turn pre_llm_request hook.
+        dispatcher.emit("pre_llm_request", ctx)
         if ctx.blocked:
-            return _blocked_return("on_length_truncation")
-    if not (ctx.raw_response or "").strip():
-        dispatcher.emit("on_empty_response", ctx)
+            return _blocked_return("pre_llm_request")
+
+        # Drain any queued post_llm_inject from prior turn into a system note.
+        injects = ctx.shared.pop("post_llm_inject", None)
+        if injects:
+            messages.append({"role": "system",
+                             "content": "\n\n".join(str(t) for t in injects)})
+
+        call = log.emit("llm.requested", parent=root, iteration=iteration,
+                        messages=messages, model=DEFAULT_MODEL)
+        try:
+            result = chat(messages=messages, tools=TOOL_SPECS,
+                          tool_choice="auto", max_tokens=PER_TURN_MAX_TOKENS)
+        except Exception as e:
+            log.emit("llm.failed", parent=call, error=repr(e))
+            log.emit("run.failed", parent=root, error=repr(e))
+            log.close()
+            return {"run_id": run_id, "answer": None, "error": repr(e),
+                    "trace_path": str(log.path)}
+
+        last_result = result
+        ctx.raw_response = result.get("content") or ""
+        ctx.shared["finish_reason"] = result.get("finish_reason")
+        log.emit(
+            "llm.responded", parent=call, iteration=iteration,
+            content=ctx.raw_response,
+            finish_reason=result.get("finish_reason"),
+            tool_calls=result.get("tool_calls"),
+            usage=result.get("usage"),
+        )
+
+        messages.append(result["assistant_message"])
+
+        # Per-turn post_llm_response hooks (REWRITE here mutates ctx.raw_response;
+        # we sync back into messages[-1] so the model history reflects it).
+        prev_raw = ctx.raw_response
+        dispatcher.emit("post_llm_response", ctx)
         if ctx.blocked:
-            return _blocked_return("on_empty_response")
+            return _blocked_return("post_llm_response")
+        dispatcher.emit("post_llm_response_raw", ctx)
+        if ctx.blocked:
+            return _blocked_return("post_llm_response_raw")
+        if ctx.raw_response != prev_raw:
+            messages[-1] = {**messages[-1], "content": ctx.raw_response}
 
-    # Default extraction: strip whitespace. Components at PRE_ANSWER_EMIT may
-    # override (e.g., regex on "FINAL ANSWER:" line).
-    ctx.answer = (ctx.raw_response or "").strip()
+        tool_calls = result.get("tool_calls") or []
+        if (result.get("finish_reason") or "") == "length":
+            dispatcher.emit("on_length_truncation", ctx)
+            if ctx.blocked:
+                return _blocked_return("on_length_truncation")
+        if not (ctx.raw_response or "").strip() and not tool_calls:
+            dispatcher.emit("on_empty_response", ctx)
+            if ctx.blocked:
+                return _blocked_return("on_empty_response")
 
-    # Legacy PRE_ANSWER_EMIT.
+        # No tool calls → this is the final turn.
+        if not tool_calls:
+            break
+
+        # Per-tool-call dispatch.
+        for tc in tool_calls:
+            tool_name = tc.get("name") or ""
+            raw_args = tc.get("arguments")
+            tool_args = raw_args if isinstance(raw_args, dict) else {}
+            tool_call_id = tc.get("id") or f"call_{iteration}_{tool_name}"
+
+            ctx.current_tool_name = tool_name
+            ctx.current_tool_args = tool_args
+            ctx.current_tool_call_id = tool_call_id
+            ctx.current_tool_result = None
+            ctx.current_tool_success = True
+
+            dispatcher.emit("pre_tool_use", ctx)
+            if ctx.blocked:
+                return _blocked_return("pre_tool_use")
+
+            if ctx.shared.pop("_skip_current_tool", False):
+                reason = ctx.shared.pop("_skip_reason", "blocked by component")
+                tool_result = f"[tool call skipped: {reason}]"
+                ctx.current_tool_result = tool_result
+                ctx.current_tool_success = False
+            else:
+                tcall_id = log.emit(
+                    "tool.called", parent=call, iteration=iteration,
+                    name=tool_name, args=ctx.current_tool_args,
+                    tool_call_id=tool_call_id,
+                )
+                tool_result = dispatch_tool(
+                    tool_name,
+                    ctx.current_tool_args if isinstance(ctx.current_tool_args, dict) else {},
+                )
+                ctx.current_tool_result = tool_result
+                ctx.current_tool_success = not (tool_result or "").startswith("ERROR")
+                log.emit("tool.responded", parent=tcall_id, name=tool_name,
+                         result=tool_result, success=ctx.current_tool_success)
+
+            dispatcher.emit("post_tool_use", ctx)
+            if ctx.blocked:
+                return _blocked_return("post_tool_use")
+            if not ctx.current_tool_success:
+                dispatcher.emit("on_tool_error", ctx)
+                if ctx.blocked:
+                    return _blocked_return("on_tool_error")
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": ctx.current_tool_result or "",
+            })
+    else:
+        log.emit("run.exhausted_iterations", parent=root,
+                 iterations=MAX_ITERATIONS)
+
+    # Default extraction: pull "FINAL ANSWER: <x>" or fallback to last content.
+    ctx.answer = _extract_final_answer(ctx.raw_response or "")
+
     dispatcher.emit("pre_answer_emit", ctx)
     if ctx.blocked:
         return _blocked_return("pre_answer_emit")
 
-    log.emit("answer.emitted", parent=root, answer=ctx.answer)
+    log.emit(
+        "answer.emitted", parent=root, answer=ctx.answer,
+        raw_answer=ctx.raw_response,
+        finish_reason=(last_result.get("finish_reason") if last_result else None),
+        iterations_used=iteration,
+    )
 
     # Tier-1 session_end: terminal bookkeeping; decisions are ALLOW-only per
     # policy (any other decision is too late to matter on a single-shot

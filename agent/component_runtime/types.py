@@ -48,16 +48,31 @@ from meta_harness.component_runtime_core.event_context import EventContext
 #
 # Lifecycle event names a GAIA component can subscribe to via `listens=`:
 #
+# Per-task setup (fires once each):
+#   "task_received"        — lifecycle anchor right after ctx construction
 #   "session_start"        — static, framework-invariant injection
 #   "pre_prompt_build"     — per-task; can rewrite prompt or block
-#   "task_received"        — lifecycle anchor right after ctx construction
 #   "pre_context_build"    — alias of pre_prompt_build (cross-sibling vocab)
 #   "pre_agent_construct"  — last hook before messages list is sealed
-#   "pre_llm_request"      — just before the SUT chat() call
-#   "post_llm_response"    — raw LLM content available; rewrite / block / inject
+#
+# Per-turn (fires once per FC iteration; up to MAX_ITERATIONS times):
+#   "pre_llm_request"      — just before the SUT chat() call this turn
+#   "post_llm_response"    — raw LLM content available this turn
 #   "post_llm_response_raw"— alias of post_llm_response
-#   "on_length_truncation" — synthesised when finish_reason == "length"
-#   "on_empty_response"    — synthesised when raw_response is empty
+#   "on_length_truncation" — synthesised when finish_reason == "length" this turn
+#   "on_empty_response"    — synthesised when this turn's raw_response is empty
+#
+# Per tool call within a turn (fires once per tool_call):
+#   "pre_tool_use"         — REWRITE replaces ctx.current_tool_args (dict);
+#                             BLOCK skips THIS tool call (returns "[skipped]"
+#                             as the tool result; task continues)
+#   "post_tool_use"        — REWRITE replaces ctx.current_tool_result (str);
+#                             INJECT_CONTEXT is concatenated INTO the tool
+#                             result so the LLM sees it on the next turn
+#   "on_tool_error"        — synthesised when the tool result starts with
+#                             "ERROR:"; typically inject a retry hint
+#
+# Per-task exit:
 #   "pre_answer_emit"      — final extracted answer; normalise / block
 #   "session_end"          — bookkeeping at end of task
 #
@@ -90,13 +105,15 @@ class Decision:
         return Decision(DecisionKind.BLOCK, reason=reason)
 
     @staticmethod
-    def rewrite(payload: str) -> "Decision":
+    def rewrite(payload) -> "Decision":
         """Replace the live payload at the firing event.
 
         Event → payload semantics:
-          pre_prompt_build / pre_context_build  → new task_prompt text
+          pre_prompt_build / pre_context_build  → new task_prompt text (str)
           post_llm_response / on_length_truncation / on_empty_response
-                                                → new raw response content
+                                                → new raw response content (str)
+          pre_tool_use                          → new tool arguments (dict)
+          post_tool_use / on_tool_error         → new tool result (str)
           pre_answer_emit                       → new final answer string
                                                   (or None to mark blocked)
         """
@@ -104,10 +121,18 @@ class Decision:
 
     @staticmethod
     def inject_context(text: str) -> "Decision":
-        """Append text to the system_prompt (at pre-LLM events: session_start,
-        pre_prompt_build, pre_context_build, task_received, pre_agent_construct,
-        pre_llm_request) or to the next recovery LLM call's context (at
-        post-LLM events: post_llm_response, on_length_truncation, on_empty_response).
+        """Append text. Where it lands depends on the firing event:
+
+          setup / pre-LLM events (session_start, pre_prompt_build,
+            pre_context_build, task_received, pre_agent_construct,
+            pre_llm_request)               → ctx.system_prompt
+          post-LLM events (post_llm_response, on_length_truncation,
+            on_empty_response, pre_tool_use)
+                                           → ctx.shared['post_llm_inject']
+                                              (replayed on next turn)
+          post_tool_use / on_tool_error    → concatenated INTO
+                                              ctx.current_tool_result so the
+                                              LLM sees it on the next turn
         """
         return Decision(DecisionKind.INJECT_CONTEXT, payload=text)
 
@@ -135,9 +160,17 @@ class ComponentContext(EventContext):
     extras: dict                                  # per-task extras
     system_prompt: str = ""                       # current base system prompt
     prompt: Optional[str] = None                  # task_prompt at pre_prompt_build / pre_context_build
-    raw_response: Optional[str] = None            # LLM raw content at post_llm_response / pre_answer_emit
+    raw_response: Optional[str] = None            # LLM raw content this turn at post_llm_response / pre_answer_emit
     answer: Optional[str] = None                  # extracted answer at pre_answer_emit
     log: Any = None                               # EventLog (read-only access for handlers)
+
+    # FC-loop state — populated only on per-turn / per-tool events:
+    current_iter: int = 0                         # 1-based FC iteration count
+    current_tool_name: str = ""                   # at pre_tool_use / post_tool_use / on_tool_error
+    current_tool_args: Optional[dict] = None      # at pre_tool_use (mutable via REWRITE)
+    current_tool_result: Optional[str] = None     # at post_tool_use / on_tool_error (mutable via REWRITE / INJECT)
+    current_tool_call_id: str = ""                # for tool_message round-tripping
+    current_tool_success: bool = True             # False on on_tool_error
 
 
 Ctx = ComponentContext

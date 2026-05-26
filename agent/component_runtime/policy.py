@@ -51,16 +51,25 @@ ALLOWED: dict[ComponentClass, dict[str, set[DecisionKind]]] = {
         "post_llm_response_raw":  _ALLOW | _REWRITE | _BLOCK | _INJECT,
         "on_length_truncation":   _ALLOW | _REWRITE | _BLOCK | _INJECT,
         "on_empty_response":      _ALLOW | _REWRITE | _BLOCK | _INJECT,
+        # Per-tool events. BLOCK at pre_tool_use skips just this tool call.
+        # REWRITE payload is dict (pre_tool_use) or str (post_tool_use).
+        # INJECT at post_tool_use concatenates into ctx.current_tool_result.
+        "pre_tool_use":           _ALLOW | _REWRITE | _BLOCK | _INJECT,
+        "post_tool_use":          _ALLOW | _REWRITE | _INJECT,
+        "on_tool_error":          _ALLOW | _INJECT,
         "pre_answer_emit":        _ALLOW | _REWRITE | _BLOCK,
         "session_end":            _ALLOW,
     },
     ComponentClass.REACTIVE_GUARD: {
         # REACTIVE_GUARD fires on observed failure signals; primarily the
-        # synthesised post-LLM failure-mode events.
+        # synthesised post-LLM and post-tool failure-mode events.
         "post_llm_response":      _ALLOW | _REWRITE | _BLOCK | _INJECT,
         "post_llm_response_raw":  _ALLOW | _REWRITE | _BLOCK | _INJECT,
         "on_length_truncation":   _ALLOW | _REWRITE | _BLOCK | _INJECT,
         "on_empty_response":      _ALLOW | _REWRITE | _BLOCK | _INJECT,
+        "pre_tool_use":           _ALLOW | _REWRITE | _BLOCK | _INJECT,
+        "post_tool_use":          _ALLOW | _REWRITE | _INJECT,
+        "on_tool_error":          _ALLOW | _INJECT,
         "pre_answer_emit":        _ALLOW | _REWRITE | _BLOCK,
     },
     ComponentClass.CHANNEL: {
