@@ -53,8 +53,6 @@ COMPONENT = Component(
     mount=Mount.POST_LLM_RESPONSE,
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.LLM_CALL,),
     trust=Trust(
         evidence_anchor=(
             "finish_reason is an OpenAI/DeepSeek API spec field with a closed "

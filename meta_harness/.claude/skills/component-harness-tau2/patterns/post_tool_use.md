@@ -44,8 +44,6 @@ COMPONENT = Component(
     mount=Mount.POST_TOOL_USE,
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     trust=Trust(
         evidence_anchor=(
             "ToolMessage.error is a framework-level field populated by the "

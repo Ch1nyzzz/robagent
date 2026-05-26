@@ -137,12 +137,10 @@ import re
 from typing import Optional, Tuple
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -371,8 +369,6 @@ COMPONENT = Component(
     listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     # Fire AFTER iter2/iter5 final_emit_recovery (priority 100) so the
     # final_output we read has already been recovered from any empty-stop,
     # and AFTER iter6 conclusive_evidence_gate (priority 150) so its

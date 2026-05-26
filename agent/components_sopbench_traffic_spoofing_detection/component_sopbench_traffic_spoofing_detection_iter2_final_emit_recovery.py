@@ -28,7 +28,7 @@ train answers:
      `<enforcement_action>Tempor...` even though the model was on its
      way to a correct emission. 1024 is comfortable margin for the
      SOP-Bench SOP scale (full SOP-following responses on this domain
-     are ~600-800 tokens). Capability remains LLM_CALL (one call).
+     are ~600-800 tokens). One sub-LLM call.
 
   2. SOP-Section-6 enumerated-value fallback. The SOP's Section 6 line
      lists the allowed output values inside DOUBLE QUOTES — for
@@ -76,12 +76,10 @@ import re
 from typing import Any, List
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 from agent.llm import chat
@@ -231,8 +229,6 @@ COMPONENT = Component(
     listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.LLM_CALL,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

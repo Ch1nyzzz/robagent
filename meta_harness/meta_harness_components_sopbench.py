@@ -216,8 +216,7 @@ Steps:
            "workflow_patch": {{
              "op": "add_node|replace_node|disable_node",
              "name": "<COMPONENT.name>",
-             "file": "agent/components_sopbench/...py",
-             "edges_in": [], "edges_out": []
+             "file": "agent/components_sopbench/...py"
            }}
          }}
        }}
@@ -247,7 +246,7 @@ NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
     is still required for policy validation (set it to the closest Mount).
   - `ctx.chat(messages, max_tokens=..., temperature=...)` is available for
     sub-LLM verifier / re-format / critic patterns — locked SUT model, no
-    `model=` kwarg. Declare `capabilities=(Capability.LLM_CALL,)` if used.
+    `model=` kwarg.
   - `ctx.emit("iter<N>_<slug>_<event>")` / `ctx.emit_upstream(...)` let two
     components exchange data within one task. Declare `emits=(...)` on the
     publisher for audit / discovery.

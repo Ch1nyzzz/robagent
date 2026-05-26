@@ -38,8 +38,6 @@ COMPONENT = Component(
     mount=Mount.SESSION_START,
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     trust=Trust(
         evidence_anchor=(
             "tau2's `call_discoverable_agent_tool` calls "

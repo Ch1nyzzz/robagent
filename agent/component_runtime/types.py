@@ -6,9 +6,9 @@ applies it according to the class×mount×decision permission matrix in
 `policy.py`.
 
 Sibling of `agent_tau2/component_runtime/types.py`. The two runtimes share
-the durability axis (ComponentClass, Trust, StateScope, Capability) and
-the patch/workflow vocabulary, but each defines its own `Mount` enum
-matching the base agent's lifecycle:
+the durability axis (ComponentClass, Trust) and the patch/workflow
+vocabulary, but each defines its own `Mount` enum matching the base
+agent's lifecycle:
 
   * tau2 agent is multi-turn tool-use → mounts include PRE_TOOL_USE /
     POST_TOOL_USE / POST_LLM_RESPONSE for sub-LLM verifiers.
@@ -29,11 +29,10 @@ from enum import Enum
 from typing import Any, Callable, Optional
 
 # Shared-across-siblings types: lifted to the unified core in Phase A of
-# the event-runtime migration. ComponentClass / StateScope / Trust are
-# byte-identical (5/5 siblings) so they only live in one place now.
+# the event-runtime migration. ComponentClass / Trust are byte-identical
+# (5/5 siblings) so they only live in one place now.
 from meta_harness.component_runtime_core.shared_types import (
     ComponentClass,
-    StateScope,
     Trust,
 )
 # Phase C: ComponentContext inherits EventContext so component handlers can
@@ -71,14 +70,6 @@ class DecisionKind(str, Enum):
     BLOCK          = "block"            # mark blocked; answer→None with reason
     REWRITE        = "rewrite"          # replace live payload (prompt / response / answer per mount)
     INJECT_CONTEXT = "inject_context"   # append text to system_prompt (PRE) or as recovery context (POST)
-
-
-class Capability(str, Enum):
-    NONE           = "none"
-    READ_FILE      = "read_file"
-    HTTP_GET       = "http_get"
-    LLM_CALL       = "llm_call"        # recovery passes, sub-LLM extraction
-    MUTATE_SHARED  = "mutate_shared"
 
 
 # --- decision ----------------------------------------------------------------
@@ -177,7 +168,5 @@ class Component:
     matcher: Optional[Matcher]
     handler: Handler
     trust: Trust
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100
     emits: tuple[str, ...] = ()

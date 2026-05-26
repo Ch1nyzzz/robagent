@@ -48,12 +48,10 @@ when train-30 scores stop improving after injection.
 from __future__ import annotations
 
 from agent_tau2.component_runtime.types import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -101,8 +99,6 @@ COMPONENT = Component(
     listens="session_start",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=200,                     # fires after any other session_start injection
     trust=Trust(
         evidence_anchor=(

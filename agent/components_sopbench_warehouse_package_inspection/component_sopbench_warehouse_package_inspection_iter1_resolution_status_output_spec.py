@@ -25,12 +25,10 @@ encoded — just the format and the enum.
 from __future__ import annotations
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -74,8 +72,6 @@ COMPONENT = Component(
     listens="session_start",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

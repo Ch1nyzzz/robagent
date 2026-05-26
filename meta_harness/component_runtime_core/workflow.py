@@ -135,8 +135,6 @@ class Patch:
     op: PatchOp
     name: str
     file: Optional[str] = None
-    edges_in: tuple[Edge, ...] = ()
-    edges_out: tuple[Edge, ...] = ()
 
     @classmethod
     def from_dict(cls, d: dict) -> "Patch":
@@ -144,8 +142,6 @@ class Patch:
             op=PatchOp(d["op"]),
             name=d.get("name") or d.get("node_id") or "",
             file=d.get("file"),
-            edges_in=tuple(Edge(**e) for e in d.get("edges_in", []) or []),
-            edges_out=tuple(Edge(**e) for e in d.get("edges_out", []) or []),
         )
 
     def to_dict(self) -> dict:
@@ -153,8 +149,6 @@ class Patch:
             "op": self.op.value,
             "name": self.name,
             "file": self.file,
-            "edges_in": [{"src": e.src, "dst": e.dst} for e in self.edges_in],
-            "edges_out": [{"src": e.src, "dst": e.dst} for e in self.edges_out],
         }
 
 
@@ -164,7 +158,7 @@ def apply_patch(wf: Workflow, patch: Patch) -> Workflow:
             raise ValueError(f"add_node: {patch.name!r} already exists in workflow")
         return Workflow(
             nodes=wf.nodes + (patch.name,),
-            edges=wf.edges + patch.edges_in + patch.edges_out,
+            edges=wf.edges,
             disabled=wf.disabled,
         )
     if patch.op is PatchOp.REPLACE_NODE:

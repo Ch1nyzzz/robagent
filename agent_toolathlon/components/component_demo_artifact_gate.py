@@ -36,8 +36,8 @@ import os
 from typing import Iterable
 
 from agent_toolathlon.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 
@@ -103,8 +103,6 @@ COMPONENT = Component(
     listens="on_explicit_terminate",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.READ_FILE,),
     priority=100,
     emits=(),
     trust=Trust(

@@ -12,7 +12,6 @@ SOP-Bench specifics:
     plus PRE_FINAL_EMIT for output normalization.
 """
 from .types import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
@@ -21,7 +20,6 @@ from .types import (
     DecisionKind,
     Handler,
     Matcher,
-    StateScope,
     Trust,
 )
 from .policy import ComponentPolicyError, validate_decision, validate_registration, validate_trust
@@ -46,7 +44,6 @@ from .base import (
 )
 
 __all__ = [
-    "Capability",
     "Component",
     "ComponentClass",
     "ComponentContext",
@@ -61,7 +58,6 @@ __all__ = [
     "Matcher",
     "Patch",
     "PatchOp",
-    "StateScope",
     "Trust",
     "Workflow",
     "apply_patch",

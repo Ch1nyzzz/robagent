@@ -12,8 +12,8 @@ None of the standard decisions are dispatched at SESSION_END in v1. This mount i
 
 ## v2 plans
 
-When CROSS_SESSION state_scope is implemented end-to-end:
-- A SESSION_END mechanism_layer with `state_scope=CROSS_SESSION` could write per-task aggregated stats.
+When cross-session persistence is wired end-to-end:
+- A SESSION_END `mechanism_layer` could persist per-task aggregated stats.
 - That state would be readable by SESSION_START components on the next task (e.g., adaptive priors).
 
 Not in scope for v1.

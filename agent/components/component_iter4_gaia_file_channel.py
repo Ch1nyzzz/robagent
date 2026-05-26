@@ -8,8 +8,8 @@ import zipfile
 from typing import Optional
 
 from agent.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 _MAX_CHARS = 12000
@@ -140,8 +140,6 @@ COMPONENT = Component(
     listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.READ_FILE,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

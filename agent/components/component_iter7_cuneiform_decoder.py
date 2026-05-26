@@ -3,8 +3,8 @@ from __future__ import annotations
 import unicodedata
 
 from agent.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 _CUNEIFORM_NUMERIC_START = 0x12400
@@ -57,8 +57,6 @@ COMPONENT = Component(
     listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=90,
     trust=Trust(
         evidence_anchor=(

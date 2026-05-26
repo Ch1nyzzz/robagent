@@ -69,12 +69,10 @@ import re
 from typing import Any
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -195,8 +193,6 @@ COMPONENT = Component(
     listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=40,  # Run before iter5 (50) and iter4 normaliser (200).
     trust=Trust(
         evidence_anchor=(

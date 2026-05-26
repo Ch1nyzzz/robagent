@@ -36,9 +36,10 @@ def _matches(ctx: ComponentContext) -> bool:
 
 def _handler(ctx: ComponentContext) -> Decision:
     am = ctx.assistant_message
-    # capabilities=(LLM_CALL,) declared on the Component; handler may
-    # invoke a sub-LLM. The verifier's system prompt is a *consistency check*
-    # over (am.content, am.tool_calls), NOT a policy interpretation.
+    # The handler invokes a sub-LLM verifier via `ctx.chat(...)` (or a
+    # locally-bound helper stashed in `ctx.shared`). The verifier's system
+    # prompt is a *consistency check* over (am.content, am.tool_calls),
+    # NOT a policy interpretation.
     verdict = ctx.shared["verify"](am.content, am.tool_calls)
     if not verdict["ok"]:
         return Decision.block(reason=f"sub_llm_verifier: {verdict['reason']}")

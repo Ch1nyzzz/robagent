@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 from agent_toolathlon.component_runtime.types import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -63,8 +61,6 @@ COMPONENT = Component(
     listens="pre_context_build",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

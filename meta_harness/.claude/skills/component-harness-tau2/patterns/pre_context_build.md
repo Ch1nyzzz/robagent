@@ -32,7 +32,8 @@ def _matches(ctx: ComponentContext) -> bool:
 
 def _handler(ctx: ComponentContext) -> Decision:
     doc_id = _DOC_PATTERN.search(ctx.incoming_message.content).group(1)
-    # capabilities=(TOOL_CALL,) declared on the Component
+    # sub-tool dispatch lives in the handler; the runtime imposes no
+    # capability allowlist in v1.
     doc = ctx.shared["retriever"](doc_id)
     return Decision.inject_context(f"<kb_doc id={doc_id}>\n{doc}\n</kb_doc>")
 
@@ -43,8 +44,6 @@ COMPONENT = Component(
     mount=Mount.PRE_CONTEXT_BUILD,
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.SESSION,
-    capabilities=(Capability.TOOL_CALL,),
     trust=Trust(
         evidence_anchor=(
             "The KB tool's `read_kb_doc(doc_id)` schema returns the doc text "
@@ -70,4 +69,4 @@ COMPONENT = Component(
 
 - Using `pre_context_build` with `decision=rewrite_tool_args`. The matrix rejects it — no tool call exists at this mount.
 - Using `pre_context_build` with class `induced_rule` and a long compiled rule set as the payload. Even though the matrix admits this, you are smuggling interpretation-layer code via the injection. Keep advisory injections short and structural ("doc_021 governs closures; read it before proceeding") rather than compiled IF/THEN.
-- Forgetting `state_scope=SESSION` when the handler caches retrieved docs. Without it, the retrieval re-fires every time the system_prompt is rebuilt.
+- Doing the retrieval call on every fire when the result is session-stable. Cache it in `ctx.shared` (or via `ctx.emit_upstream`) so subsequent fires in the same task short-circuit.

@@ -55,8 +55,6 @@ class Component:
     matcher: Optional[Callable[[Ctx], bool]]
     handler: Callable[[Ctx], Decision]
     trust: Trust
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100
     emits: tuple[str, ...] = ()
 ```
@@ -112,10 +110,6 @@ Post-Runner (after `Runner.run` returns):
 
 `ctx.tool_call` at `pre_tool_use` is a **dict** `{"name": str, "arguments": dict}` (not a tau2-style ToolCall object). Components that REWRITE_TOOL_ARGS return `Decision.rewrite_tool_args(new_args_dict)`; the apply layer rebuilds the dict.
 
-### StateScope
-
-`none` (default) / `session` (per-task scratchpad at `ctx.state[component_name]`) / `cross_session` (reserved).
-
 ### Trust
 
 ```python
@@ -128,18 +122,18 @@ class Trust:
     fallback: str               # OPTIONAL
 ```
 
-### Capability
+### Handler helpers on `ctx`
 
-| capability        | what it permits                                                       |
+| helper            | what it does                                                          |
 |-------------------|-----------------------------------------------------------------------|
-| `none`            | pure function                                                         |
-| `read_file`       | `open(path, "r")` on workspace paths                                  |
-| `http_get`        | outbound HTTP GET                                                     |
-| `llm_call`        | invoke `ctx.chat(...)` (locked SUT model via `agent.llm.chat`, NOT the SDK ModelProvider) |
-| `tool_call`       | issue a sub-tool-call within the handler                              |
-| `mutate_shared`   | write to `ctx.shared`                                                 |
+| `ctx.chat(...)`   | sub-LLM call via the locked SUT model (mutable inference params)      |
+| `ctx.read_file`   | read a workspace file                                                 |
+| `ctx.fetch`       | outbound HTTP GET                                                     |
+| `ctx.shared`      | per-task dict, free to read/write                                     |
+| `ctx.emit(...)`   | fire a custom Tier-2/3 event (re-enters dispatcher; depth cap = 10)   |
+| `ctx.emit_upstream(key, value)` | write to `ctx.upstream` for downstream subscribers      |
 
-`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` (the SAME locked SUT model name the SDK Runner uses, NOT the OpenAI Agents SDK ModelProvider). No `model=` kwarg. `ctx.emit(custom_event_name, **fields)` re-enters the dispatcher (depth cap = 10). `ctx.emit_upstream(key, value)` writes to `ctx.upstream`.
+`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` (the SAME locked SUT model name the SDK Runner uses, NOT the OpenAI Agents SDK ModelProvider). No `model=` kwarg.
 
 ## The class × event × decision matrix
 
@@ -184,7 +178,6 @@ Single frontier YAML: `meta_harness/workflows/toolathlon_main.yaml`.
 ```yaml
 nodes:
   - some_component_name
-edges: []
 disabled: []
 ```
 
@@ -203,7 +196,7 @@ Plus a JSON snapshot `meta_harness/logs_components_toolathlon/frontier_workflow.
 - Exactly ONE patch per invocation.
 - **You do NOT run benchmarks.** No `toolathlon_runner.py`. The outer loop scores.
 - **No task-specific code.** No train task_ids in matchers. No hardcoded entity strings (paper IDs, GitHub repo names, Notion page slugs). No encoded gold answers.
-- **The target inference model (deepseek-v4-pro via Together AI) is LOCKED.** Components do NOT call any other LLM API. `ctx.chat()` IS permitted (locked SUT model name via `agent.llm.chat`, NOT the SDK ModelProvider). Declare `Capability.LLM_CALL`.
+- **The target inference model (deepseek-v4-pro via Together AI) is LOCKED.** Components do NOT call any other LLM API. `ctx.chat()` IS permitted (locked SUT model name via `agent.llm.chat`, NOT the SDK ModelProvider).
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
   cp agent_toolathlon/components/<existing>.py agent_toolathlon/components/<existing>.py.bak_iter<N>
@@ -219,8 +212,8 @@ Plus a JSON snapshot `meta_harness/logs_components_toolathlon/frontier_workflow.
 from __future__ import annotations
 
 from agent_toolathlon.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 
@@ -244,8 +237,6 @@ COMPONENT = Component(
     listens="pre_context_build",
     matcher=_matches,                       # or None for always-on
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     emits=(),
     trust=Trust(
@@ -281,9 +272,7 @@ COMPONENT = Component(
     "workflow_patch": {
       "op": "add_node",
       "name": "<COMPONENT.name>",
-      "file": "agent_toolathlon/components/component_iter<N>_<slug>.py",
-      "edges_in": [],
-      "edges_out": []
+      "file": "agent_toolathlon/components/component_iter<N>_<slug>.py"
     }
   }
 }

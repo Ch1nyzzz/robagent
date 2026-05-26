@@ -56,12 +56,10 @@ in-place replace_node refinement, not a new node.
 from __future__ import annotations
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -101,8 +99,6 @@ COMPONENT = Component(
     listens="pre_tool_use",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

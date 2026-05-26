@@ -203,7 +203,6 @@ NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
     required for policy validation.
   - `ctx.chat(messages, max_tokens=..., temperature=...)` is available
     for sub-LLM verifier patterns — locked SUT model, no `model=` kwarg.
-    Declare `capabilities=(Capability.LLM_CALL,)` if used.
   - `ctx.emit("iter{iteration}_<slug>_<event>")` / `ctx.emit_upstream(...)`
     are available for component-to-component dataflow within a task.
     Declare `emits=(...)` on the publisher.

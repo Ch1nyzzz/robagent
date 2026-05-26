@@ -288,8 +288,7 @@ Steps:
            "workflow_patch": {{
              "op": "add_node|replace_node|disable_node",
              "name": "<COMPONENT.name>",
-             "file": "{COMPONENTS_DIR.relative_to(ROOT)}/...py",
-             "edges_in": [], "edges_out": []
+             "file": "{COMPONENTS_DIR.relative_to(ROOT)}/...py"
            }}
          }}
        }}
@@ -329,7 +328,7 @@ NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
   - `ctx.chat(messages, max_tokens=..., temperature=...)` is available for
     sub-LLM verifier patterns. It routes through agent.llm.chat (the SAME
     locked SUT model name the SDK Runner uses; NOT the SDK ModelProvider).
-    No `model=` kwarg. Declare `capabilities=(Capability.LLM_CALL,)` if used.
+    No `model=` kwarg.
   - `ctx.emit("iter<N>_<slug>_<event>")` / `ctx.emit_upstream(...)` let two
     components coordinate within one task. Declare `emits=(...)` on the
     publisher for audit / discovery.

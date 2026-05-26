@@ -97,12 +97,10 @@ import os
 from typing import Optional
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -226,8 +224,6 @@ COMPONENT = Component(
     listens="post_tool_use",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.READ_FILE,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

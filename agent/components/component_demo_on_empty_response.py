@@ -29,8 +29,8 @@ time because the runtime already gated the event by content emptiness.
 from __future__ import annotations
 
 from agent.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 
@@ -75,8 +75,6 @@ COMPONENT = Component(
     listens="on_empty_response",          # Tier-1 event subscription
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.LLM_CALL,),
     priority=200,                          # fire AFTER length_recovery_guard
     emits=("on_empty_response_recovered",),  # downstream observers may listen
     trust=Trust(

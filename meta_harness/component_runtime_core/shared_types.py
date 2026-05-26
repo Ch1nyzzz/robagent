@@ -1,17 +1,15 @@
 """Truly cross-sibling enums + dataclasses.
 
-These three types are 5/5 identical across the gaia / tau2 / toolathlon /
+These two types are 5/5 identical across the gaia / tau2 / toolathlon /
 sopbench / enterpriseops runtimes (only docstring drift). Verified by:
 
     grep -A 8 '^class Trust' agent/component_runtime/types.py agent_tau2/component_runtime/types.py agent_toolathlon/component_runtime/types.py agent/component_runtime_sopbench/types.py agent/component_runtime_enterpriseops/types.py
-    grep -A 5 '^class StateScope' ...
     grep -A 10 '^class ComponentClass' ...
 
-Mount / DecisionKind / Capability / Decision / ComponentContext / Component
-stay per-sibling because they LEGITIMATELY differ (different lifecycle
+Mount / DecisionKind / Decision / ComponentContext / Component stay
+per-sibling because they LEGITIMATELY differ (different lifecycle
 vocabularies, different decision kinds, different mount-specific ctx
-fields, different capability sets). See the package docstring for the
-full split.
+fields). See the package docstring for the full split.
 """
 from __future__ import annotations
 
@@ -44,19 +42,6 @@ class ComponentClass(str, Enum):
     CHANNEL               = "channel"
     INDUCED_RULE          = "induced_rule"
     PREDICTIVE_HEURISTIC  = "predictive_heuristic"
-
-
-class StateScope(str, Enum):
-    """Lifetime of any per-Component scratchpad.
-
-    NONE          : handler is a pure function of ctx.
-    SESSION       : ctx.state[component_name] persists for the task only.
-    CROSS_SESSION : persisted to .component-state/<tag>/<name>.json
-                    across task invocations. Reserved; not enforced in v1.
-    """
-    NONE          = "none"
-    SESSION       = "session"
-    CROSS_SESSION = "cross_session"
 
 
 @dataclass(frozen=True)

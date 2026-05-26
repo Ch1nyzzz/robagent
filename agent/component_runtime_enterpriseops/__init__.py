@@ -13,7 +13,6 @@ EnterpriseOps-Gym specifics:
     at DB rows rather than at agent text output.
 """
 from .types import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
@@ -22,7 +21,6 @@ from .types import (
     DecisionKind,
     Handler,
     Matcher,
-    StateScope,
     Trust,
 )
 from .policy import ComponentPolicyError, validate_decision, validate_registration, validate_trust
@@ -47,7 +45,6 @@ from .base import (
 )
 
 __all__ = [
-    "Capability",
     "Component",
     "ComponentClass",
     "ComponentContext",
@@ -62,7 +59,6 @@ __all__ = [
     "Matcher",
     "Patch",
     "PatchOp",
-    "StateScope",
     "Trust",
     "Workflow",
     "apply_patch",

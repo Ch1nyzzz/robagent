@@ -64,14 +64,13 @@ from .types import (
     Component,
     ComponentContext,
     DecisionKind,
-    StateScope,
 )
 from .workflow import Workflow
 
 
 def _make_chat_impl():
     """ctx.chat helper bound to the locked SUT model. Used by Tier-1
-    event subscribers that declare Capability.LLM_CALL."""
+    event subscribers that need a sub-LLM call."""
     def _impl(messages, *, max_tokens, temperature, system_override, tools):
         if system_override:
             messages = (

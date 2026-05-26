@@ -20,11 +20,10 @@ from enum import Enum
 from typing import Any, Callable, Optional
 
 # Shared-across-siblings types: lifted to the unified core in Phase A of
-# the event-runtime migration. ComponentClass / StateScope / Trust are
-# byte-identical (5/5 siblings) so they only live in one place now.
+# the event-runtime migration. ComponentClass / Trust are byte-identical
+# (5/5 siblings) so they only live in one place now.
 from meta_harness.component_runtime_core.shared_types import (
     ComponentClass,
-    StateScope,
     Trust,
 )
 # Phase C: ComponentContext inherits EventContext for capability methods
@@ -43,15 +42,6 @@ class DecisionKind(str, Enum):
     BLOCK          = "block"            # terminate loop / drop tool call
     REWRITE        = "rewrite"          # replace mount-specific in-flight payload
     INJECT_CONTEXT = "inject_context"   # append text into system_prompt or post-llm inject queue
-
-
-class Capability(str, Enum):
-    NONE           = "none"
-    READ_FILE      = "read_file"
-    HTTP_GET       = "http_get"
-    LLM_CALL       = "llm_call"        # sub-LLM verifier / re-format / critic
-    TOOL_CALL      = "tool_call"       # sub-tool dispatch beyond the model's choices
-    MUTATE_SHARED  = "mutate_shared"
 
 
 # --- decision ----------------------------------------------------------------
@@ -169,8 +159,6 @@ class Component:
     matcher: Optional[Matcher]
     handler: Handler
     trust: Trust
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100              # smaller fires first
     listens: str
     emits: tuple[str, ...] = ()

@@ -94,12 +94,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -197,8 +195,6 @@ COMPONENT = Component(
     listens="pre_tool_use",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     # Fire EARLY at PRE_TOOL_USE so any later PRE_TOOL_USE component sees
     # cleaned args. Priority 50 < the default 100 used by iter2/iter5/iter6
     # at other mounts (those are PRE_FINAL_EMIT so the priority comparison

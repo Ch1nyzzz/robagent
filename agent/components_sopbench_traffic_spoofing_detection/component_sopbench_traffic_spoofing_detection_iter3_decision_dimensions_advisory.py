@@ -64,12 +64,10 @@ from __future__ import annotations
 import re
 
 from agent.component_runtime_sopbench import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -146,8 +144,6 @@ COMPONENT = Component(
     listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=80,
     trust=Trust(
         evidence_anchor=(

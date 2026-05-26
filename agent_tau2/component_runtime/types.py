@@ -19,9 +19,7 @@ Compared to the predecessor `hook_runtime`:
     (`generalization_argument` / `fallback` / `dead_when`) collapse into a
     structured `Trust` dataclass with a required `out_of_evidence_probe`
     for INDUCED_RULE.
-  * New fields: `state_scope` (none / session / cross_session),
-    `capabilities` (explicit side-effect allowlist), `priority` (ordering
-    within a mount bucket).
+  * New field: `priority` (ordering within an event bucket).
 
 A `Component` is a frozen dataclass loaded once per file and looked up by
 name; it carries no runtime state itself.
@@ -33,11 +31,10 @@ from enum import Enum
 from typing import Any, Callable, Optional
 
 # Shared-across-siblings types: lifted to the unified core in Phase A of
-# the event-runtime migration. ComponentClass / StateScope / Trust are
-# byte-identical (5/5 siblings) so they only live in one place now.
+# the event-runtime migration. ComponentClass / Trust are byte-identical
+# (5/5 siblings) so they only live in one place now.
 from meta_harness.component_runtime_core.shared_types import (
     ComponentClass,
-    StateScope,
     Trust,
 )
 # Phase C: ComponentContext inherits EventContext for capability methods.
@@ -55,20 +52,6 @@ class DecisionKind(str, Enum):
     REWRITE_TOOL_ARGS = "rewrite_tool_args"
     DEFER = "defer"                       # postpone the call until predicate fires
     INJECT_CONTEXT = "inject_context"     # append text to prompt / state
-
-
-class Capability(str, Enum):
-    """Explicit allowlist of side-effects a Component handler may perform.
-
-    Declared at construction; v1 records it in the manifest but does not
-    yet sandbox at fire time. Acts as a structural contract today.
-    """
-    NONE           = "none"
-    READ_FILE      = "read_file"
-    HTTP_GET       = "http_get"
-    TOOL_CALL      = "tool_call"     # sub-tool-call (retriever pattern)
-    LLM_CALL       = "llm_call"      # sub-LLM (verifier pattern)
-    MUTATE_SHARED  = "mutate_shared"
 
 
 # --- decision ----------------------------------------------------------------
@@ -173,8 +156,6 @@ class Component:
     matcher: Optional[Matcher]
     handler: Handler
     trust: Trust
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100              # smaller fires first
     listens: str
     emits: tuple[str, ...] = ()

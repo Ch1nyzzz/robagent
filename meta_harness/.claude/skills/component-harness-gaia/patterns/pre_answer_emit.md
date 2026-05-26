@@ -96,4 +96,4 @@ COMPONENT = Component(
 
 - Number normalisation with cultural assumptions (e.g., comma-as-decimal). The matcher should test the FORMAT (digit + comma + 3-digit groups), not guess what the question wanted.
 - `block` based on answer length / "looks weird". Predictive_heuristic in disguise. Use only on structural failure signals.
-- Chaining many small `pre_answer_emit` rewrites in fixed priority order without considering interactions. Each fires unconditionally; later ones see the earlier one's output. Add `state_scope=SESSION` if a component needs to know whether an earlier one already rewrote.
+- Chaining many small `pre_answer_emit` rewrites in fixed priority order without considering interactions. Each fires unconditionally; later ones see the earlier one's output. If a downstream component needs to know whether an earlier one already rewrote, stash a flag in `ctx.shared` (or use `ctx.emit_upstream`).

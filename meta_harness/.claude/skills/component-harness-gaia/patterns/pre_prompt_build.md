@@ -50,8 +50,6 @@ COMPONENT = Component(
     mount=Mount.PRE_PROMPT_BUILD,
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.READ_FILE,),
     trust=Trust(
         evidence_anchor=(
             "extras.file_name is a system field populated by bench/gaia/loader.py "
@@ -68,4 +66,3 @@ COMPONENT = Component(
 
 - Class = `mechanism_layer` with `decision = rewrite` based on a regex over the prompt text ("if the question mentions a date, rewrite to add 'use current date'"). The matcher is interpretation-layer; the right class is `induced_rule` advisory inject_context, or no component at all.
 - Class = `channel` with `decision = rewrite`. The matrix admits only `inject_context` for channel — rewriting the prompt wholesale is mechanism_layer's job.
-- Forgetting `capabilities=(READ_FILE,)`. The runtime records it in the manifest; the durability audit cross-checks declared vs observed effects.

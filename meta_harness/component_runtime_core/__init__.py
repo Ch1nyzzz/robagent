@@ -3,7 +3,7 @@
 Holds the pieces that are GENUINELY identical across all 5 sibling
 component runtimes (gaia / tau2 / toolathlon / sopbench / enterpriseops):
 
-  - shared_types.py  Trust, StateScope, ComponentClass
+  - shared_types.py  Trust, ComponentClass
   - workflow.py      Workflow, Edge, Patch, PatchOp, FrontierSnapshot,
                      apply_patch (YAML schema + patch ops the proposer
                      emits; data-only, no sibling-specific behaviour)
@@ -15,21 +15,14 @@ component runtimes (gaia / tau2 / toolathlon / sopbench / enterpriseops):
 
 Stays per-sibling (do NOT lift):
 
-  - Mount enum            (different lifecycle vocabularies)
   - DecisionKind enum     (gaia/sopbench/enterpriseops vs tau2/toolathlon
                            differ on REWRITE vs REWRITE_TOOL_ARGS + DEFER)
-  - Capability enum       (gaia lacks TOOL_CALL)
   - Decision dataclass    (sibling-specific factory methods)
   - ComponentContext      (mount-specific fields differ per sibling)
-  - Component dataclass   (siblings hold their own Mount type;
-                           Phase B will add a shared `listens: str` field
-                           via per-sibling dataclass definitions)
-
-Phase B will add `dispatcher.py` and `event_context.py` here for the
-event-based dispatch surface.
+  - Component dataclass   (siblings hold their own per-bench ctx type)
 """
 
-from .shared_types import ComponentClass, StateScope, Trust
+from .shared_types import ComponentClass, Trust
 from .workflow import (
     Edge,
     FrontierSnapshot,
@@ -58,7 +51,6 @@ __all__ = [
     "FrontierSnapshot",
     "Patch",
     "PatchOp",
-    "StateScope",
     "Trust",
     "Workflow",
     "apply_patch",

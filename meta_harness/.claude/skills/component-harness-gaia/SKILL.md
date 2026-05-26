@@ -27,8 +27,6 @@ class Component:
     matcher: Optional[Callable[[Ctx], bool]]
     handler: Callable[[Ctx], Decision]
     trust: Trust                           # required verification block
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100                    # smaller fires first within an event bucket
     emits: tuple[str, ...] = ()            # self-doc of custom Tier-2/3 events this raises
 ```
@@ -52,7 +50,7 @@ The runtime calls `dispatcher.emit("<event_name>", ctx)` at each lifecycle ancho
 | `pre_answer_emit`       | after default extraction, before return                                | normalise (number format, strip prefixes)                |
 | `session_end`           | bookkeeping at end of task                                             | —                                                        |
 
-GAIA has NO tool-use events — tasks are single-shot prompt→answer. Tool-like behaviour (file read, URL fetch, sub-LLM call) lives inside a component's handler via `capabilities`.
+GAIA has NO tool-use events — tasks are single-shot prompt→answer. Tool-like behaviour (file read, URL fetch, sub-LLM call) lives inside a component's handler via the helper methods on `ctx`.
 
 ### Component classes
 
@@ -81,10 +79,6 @@ Event → REWRITE payload:
 | `post_llm_response` / `post_llm_response_raw` / `on_length_truncation` / `on_empty_response` | `str` | `ctx.raw_response`                          |
 | `pre_answer_emit`                  | `str` or `None`   | `ctx.answer` (None marks blocked)           |
 
-### StateScope
-
-`none` (default) / `session` (per-task scratchpad at `ctx.state[component_name]`) / `cross_session` (reserved).
-
 ### Trust
 
 ```python
@@ -102,21 +96,18 @@ class Trust:
 - `evidence_anchor`: name a system field, LLM API field, file format, or general algorithm. If your answer is "trace_017 says…" the structure you're anchored to is inside your evidence — pick a different class or do not write the component.
 - `out_of_evidence_probe`: name one concrete case NOT in your evidence traces where your matcher fires, and what your handler returns on it. If you cannot construct one, the component overfits by construction.
 
-### Capability
+### Handler helpers on `ctx`
 
-Explicit allowlist of side-effects the handler may perform.
-
-| capability        | what it permits                                                          |
+| helper            | what it does                                                             |
 |-------------------|--------------------------------------------------------------------------|
-| `none`            | pure function                                                            |
-| `read_file`       | `open(path, "r")` on workspace paths                                     |
-| `http_get`        | outbound HTTP GET (NOT WIRED in GAIA v1)                                 |
-| `llm_call`        | invoke `ctx.chat(...)` (locked SUT model, mutable inference params)      |
-| `mutate_shared`   | write to `ctx.shared`                                                    |
+| `ctx.chat(...)`   | sub-LLM call via the locked SUT model (mutable inference params)         |
+| `ctx.read_file`   | read a workspace file                                                    |
+| `ctx.fetch`       | outbound HTTP GET (NOT WIRED in GAIA v1)                                 |
+| `ctx.shared`      | per-task dict, free to read/write                                        |
+| `ctx.emit(...)`   | fire a custom Tier-2/3 event (re-enters dispatcher; depth cap = 10)      |
+| `ctx.emit_upstream(key, value)` | write to `ctx.upstream` for downstream subscribers         |
 
-`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` and rejects any model override at call time. Use for sub-LLM recovery (length truncation, empty response). Declare `Capability.LLM_CALL`.
-
-`ctx.emit(custom_event_name, **fields)` synchronously fires a custom (Tier-2/3) event, re-entering the dispatcher. Depth cap = 10. Fields are advisory; pass data via `ctx.shared` / `ctx.upstream` / `ctx.emit_upstream(key, value)`.
+`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` and rejects any model override at call time. Use for sub-LLM recovery (length truncation, empty response).
 
 ## The class × event × decision matrix
 
@@ -145,7 +136,6 @@ nodes:
   - length_recovery_guard
   - gaia_file_channel
   - cuneiform_numeric_decoder
-edges: []
 disabled: []
 ```
 
@@ -181,8 +171,8 @@ Plus a JSON snapshot `meta_harness/logs_components_gaia/frontier_workflow.json` 
 from __future__ import annotations
 
 from agent.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 
@@ -202,8 +192,6 @@ COMPONENT = Component(
     listens="on_length_truncation",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.LLM_CALL,),    # if you call ctx.chat(...)
     priority=100,
     emits=(),                                # declare custom events you raise
     trust=Trust(
@@ -249,7 +237,7 @@ STABLE STRUCTURE:     <evidence_anchor — system field / LLM API field / file f
 OUT_OF_EVIDENCE PROBE: <one concrete case NOT in the evidence traces where the matcher
                        fires, and exactly what the handler returns on it>
 PATCH_OP:             <add_node | replace_node | disable_node>
-COMPONENT:            listens=<...>, cls=<...>, state_scope=<...>, capabilities=<...>
+COMPONENT:            listens=<...>, cls=<...>
 EXPECTED_DELTA:       train-30 acc <current> → <expected>
 ```
 
@@ -299,8 +287,6 @@ For `replace_node`, FIRST run the `cp ... .bak_iter<N>` command (see Hard rules)
       "id": "<stable_component_id>",
       "cls": "mechanism_layer | reactive_guard | channel | induced_rule",
       "listens": "<event_name>",
-      "state_scope": "none | session | cross_session",
-      "capabilities": ["none | read_file | http_get | llm_call | mutate_shared"],
       "file": "agent/components/<name>.py",
       "trust": {
         "evidence_anchor": "<stable structure outside evidence traces>",
@@ -313,9 +299,7 @@ For `replace_node`, FIRST run the `cp ... .bak_iter<N>` command (see Hard rules)
     "workflow_patch": {
       "op": "add_node | replace_node | disable_node",
       "name": "<component name; existing id for disable_node>",
-      "file": "agent/components/<name>.py",
-      "edges_in": [],
-      "edges_out": []
+      "file": "agent/components/<name>.py"
     }
   }
 }

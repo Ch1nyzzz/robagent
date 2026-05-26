@@ -182,8 +182,8 @@ NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
     closest Mount enum).
   - `ctx.chat(messages, max_tokens=..., temperature=...)` is available for
     sub-LLM verifier / recovery patterns — it routes through the locked
-    SUT model name. Declare `capabilities=(Capability.LLM_CALL,)` if used.
-    The helper does NOT accept a `model=` kwarg (impossible by signature).
+    SUT model name. The helper does NOT accept a `model=` kwarg
+    (impossible by signature).
   - `ctx.emit("iter{iteration}_<slug>_<event>")` / `ctx.emit_upstream(...)`
     let two components exchange data within one task. Declare `emits=(...)`
     on the publisher for audit / discovery.

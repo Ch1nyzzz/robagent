@@ -36,12 +36,10 @@ in durability_audit.py.
 from __future__ import annotations
 
 from agent_tau2.component_runtime.types import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -65,8 +63,6 @@ COMPONENT = Component(
     listens="pre_tool_use",
     matcher=_matches,
     handler=_strip,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

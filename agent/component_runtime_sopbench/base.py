@@ -231,8 +231,8 @@ class Dispatcher:
 
         - ctx.chat → agent.llm.chat (locked SUT model)
         - ctx.emit → re-enter this same dispatcher (with depth cap)
-        - ctx.fetch / ctx.read_file intentionally None in v1 (declared in
-          Capability enum but not yet sandbox-wired).
+        - ctx.fetch / ctx.read_file intentionally None in v1 (not yet
+          wired by this sibling).
         """
         ctx._impl_chat = _make_chat_impl()
         ctx._impl_emit = lambda name, fields: self._core.emit(name, ctx)

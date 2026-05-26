@@ -6,11 +6,11 @@ capability method handles). Sibling ComponentContext subclasses extend
 this with mount-specific payload fields (e.g. sopbench's
 `current_tool_name`, gaia's `raw_response`).
 
-Capability methods (`chat`, `fetch`, `read_file`, `emit`, `emit_upstream`)
+Helper methods (`chat`, `fetch`, `read_file`, `emit`, `emit_upstream`)
 are stubs by default — Phase C wires per-sibling implementations via the
 `_impl_*` callable hooks set when the dispatcher constructs the context.
-A handler that calls a capability the sibling does not support gets a
-clear RuntimeError instead of an opaque AttributeError.
+A handler that calls a method the sibling does not support gets a clear
+RuntimeError instead of an opaque AttributeError.
 
 `ctx.chat()` does NOT take a `model` kwarg. The implementation goes
 through `agent.llm.chat()` (or the per-bench equivalent) which already
@@ -62,8 +62,8 @@ class EventContext:
     blocked_reason: str = ""
 
     # ------------------------------------------------------------------
-    # Capability hooks — runtime injects per-bench implementations at
-    # dispatch time. None = sibling does not expose this capability.
+    # Helper-method impl hooks — runtime injects per-bench implementations
+    # at dispatch time. None = sibling does not wire this helper.
     # ------------------------------------------------------------------
     _impl_chat: Optional[Callable[..., Any]] = field(default=None, repr=False)
     _impl_fetch: Optional[Callable[[str], str]] = field(default=None, repr=False)
@@ -94,9 +94,8 @@ class EventContext:
         if self._impl_chat is None:
             raise RuntimeError(
                 "ctx.chat is unavailable for this sibling/event "
-                "(LLM_CALL capability not wired). If your component declares "
-                "Capability.LLM_CALL, make sure the dispatcher was constructed "
-                "with `chat=...` for this event."
+                "(sub-LLM helper not wired). Make sure the dispatcher was "
+                "constructed with `chat=...` for this event."
             )
         return self._impl_chat(
             messages,
@@ -108,12 +107,12 @@ class EventContext:
 
     def fetch(self, url: str) -> str:
         if self._impl_fetch is None:
-            raise RuntimeError("ctx.fetch unavailable (HTTP_GET capability not wired).")
+            raise RuntimeError("ctx.fetch unavailable (HTTP helper not wired).")
         return self._impl_fetch(url)
 
     def read_file(self, path: str | Path) -> str:
         if self._impl_read_file is None:
-            raise RuntimeError("ctx.read_file unavailable (READ_FILE capability not wired).")
+            raise RuntimeError("ctx.read_file unavailable (file-read helper not wired).")
         return self._impl_read_file(path)
 
     def emit(self, custom_event_name: str, **fields: Any) -> None:

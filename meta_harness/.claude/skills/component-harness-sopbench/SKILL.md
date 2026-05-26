@@ -39,8 +39,6 @@ class Component:
     matcher: Optional[Callable[[Ctx], bool]]
     handler: Callable[[Ctx], Decision]
     trust: Trust
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100
     emits: tuple[str, ...] = ()
 ```
@@ -119,10 +117,6 @@ Event → REWRITE payload:
 | `post_tool_use` / `post_tool_result_raw` / `on_tool_error` | `str`           | `ctx.current_tool_result_str`         |
 | `pre_final_emit`                               | `str` or `None`             | `ctx.final_output` (None marks blocked) |
 
-### StateScope
-
-`none` (default) / `session` (per-task scratchpad at `ctx.state[component_name]`) / `cross_session` (reserved).
-
 ### Trust
 
 ```python
@@ -135,18 +129,18 @@ class Trust:
     fallback: str               # OPTIONAL
 ```
 
-### Capability
+### Handler helpers on `ctx`
 
-| capability        | what it permits                                                       |
+| helper            | what it does                                                          |
 |-------------------|-----------------------------------------------------------------------|
-| `none`            | pure function                                                         |
-| `read_file`       | `open(path, "r")` on workspace paths                                  |
-| `http_get`        | outbound HTTP GET                                                     |
-| `llm_call`        | invoke `ctx.chat(...)` (locked SUT model, mutable inference params)   |
-| `tool_call`       | issue a sub-tool-call within the handler                              |
-| `mutate_shared`   | write to `ctx.shared`                                                 |
+| `ctx.chat(...)`   | sub-LLM call via the locked SUT model (mutable inference params)      |
+| `ctx.read_file`   | read a workspace file                                                 |
+| `ctx.fetch`       | outbound HTTP GET                                                     |
+| `ctx.shared`      | per-task dict, free to read/write                                     |
+| `ctx.emit(...)`   | fire a custom Tier-2/3 event (re-enters dispatcher; depth cap = 10)   |
+| `ctx.emit_upstream(key, value)` | write to `ctx.upstream` for downstream subscribers      |
 
-`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` (locked SUT model name). `ctx.emit(custom_event_name, **fields)` re-enters the dispatcher (depth cap = 10). `ctx.emit_upstream(key, value)` writes to `ctx.upstream` for downstream components.
+`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` (locked SUT model name).
 
 ## The class × event × decision matrix
 
@@ -185,7 +179,6 @@ Per-domain frontier YAML: `meta_harness/workflows/sopbench_<domain>.yaml`.
 ```yaml
 nodes:
   - sopbench_dangerous_goods_final_xml_recovery
-edges: []
 disabled: []
 ```
 
@@ -220,8 +213,8 @@ Plus a JSON snapshot `meta_harness/logs_components_sopbench_<domain>/frontier_wo
 from __future__ import annotations
 
 from agent.component_runtime_sopbench import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 
@@ -245,8 +238,6 @@ COMPONENT = Component(
     listens="pre_final_emit",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     emits=(),
     trust=Trust(
@@ -282,9 +273,7 @@ COMPONENT = Component(
     "workflow_patch": {
       "op": "add_node",
       "name": "<COMPONENT.name>",
-      "file": "agent/components_sopbench_<domain>/component_sopbench_<domain>_iter<N>_<slug>.py",
-      "edges_in": [],
-      "edges_out": []
+      "file": "agent/components_sopbench_<domain>/component_sopbench_<domain>_iter<N>_<slug>.py"
     }
   }
 }

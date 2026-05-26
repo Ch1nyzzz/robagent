@@ -45,8 +45,6 @@ class Component:
     matcher: Optional[Callable[[Ctx], bool]]
     handler: Callable[[Ctx], Decision]
     trust: Trust
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100
     emits: tuple[str, ...] = ()
 ```
@@ -125,10 +123,6 @@ Event → REWRITE payload:
 | `post_tool_use` / `post_tool_result_raw` / `on_tool_error` | `str`           | `ctx.current_tool_result_str`         |
 | `pre_final_emit`                               | `str` or `None`             | `ctx.final_output` (observational)    |
 
-### StateScope
-
-`none` (default) / `session` (per-task scratchpad at `ctx.state[component_name]`) / `cross_session` (reserved).
-
 ### Trust
 
 ```python
@@ -141,18 +135,18 @@ class Trust:
     fallback: str               # OPTIONAL
 ```
 
-### Capability
+### Handler helpers on `ctx`
 
-| capability        | what it permits                                                       |
+| helper            | what it does                                                          |
 |-------------------|-----------------------------------------------------------------------|
-| `none`            | pure function                                                         |
-| `read_file`       | `open(path, "r")` on workspace paths                                  |
-| `http_get`        | outbound HTTP GET                                                     |
-| `llm_call`        | invoke `ctx.chat(...)` (locked SUT model via `agent.llm.chat`, NOT the upstream langchain client) |
-| `tool_call`       | issue a sub-tool-call within the handler                              |
-| `mutate_shared`   | write to `ctx.shared`                                                 |
+| `ctx.chat(...)`   | sub-LLM call via the locked SUT model (mutable inference params)      |
+| `ctx.read_file`   | read a workspace file                                                 |
+| `ctx.fetch`       | outbound HTTP GET                                                     |
+| `ctx.shared`      | per-task dict, free to read/write                                     |
+| `ctx.emit(...)`   | fire a custom Tier-2/3 event (re-enters dispatcher; depth cap = 10)   |
+| `ctx.emit_upstream(key, value)` | write to `ctx.upstream` for downstream subscribers      |
 
-`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` (locked SUT model name, NOT upstream LangChain). `ctx.emit(custom_event_name, **fields)` re-enters the dispatcher (depth cap = 10). `ctx.emit_upstream(key, value)` writes to `ctx.upstream`.
+`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` (locked SUT model name, NOT upstream LangChain).
 
 ## The class × event × decision matrix
 
@@ -172,7 +166,6 @@ Per-domain frontier YAML: `meta_harness/workflows/enterpriseops_<domain>.yaml`.
 
 ```yaml
 nodes: []
-edges: []
 disabled: []
 ```
 
@@ -192,7 +185,7 @@ Plus a JSON snapshot `meta_harness/logs_components_enterpriseops_<domain>/fronti
 - **You do NOT run benchmarks.** No `run_enterpriseops_baseline.py`, no `evaluate.py`. The outer loop scores.
 - **No task-specific code.** No domain-specific entity names in matchers (no calendar names, no user names, no UUIDs). No encoded gold answers.
 - **You may NOT read `ctx.verifiers`** to drive component logic — that is the test set's grading rubric. Components target structure (tool schemas, user_prompt patterns, finish_reason) — never the SQL queries.
-- **The target inference model is LOCKED via the upstream LLM config.** Components do NOT call langchain / direct API for additional model calls. `ctx.chat()` IS permitted (goes through `agent.llm.chat`, same locked model name). Declare `Capability.LLM_CALL`.
+- **The target inference model is LOCKED via the upstream LLM config.** Components do NOT call langchain / direct API for additional model calls. `ctx.chat()` IS permitted (goes through `agent.llm.chat`, same locked model name).
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
   cp agent/components_enterpriseops_<domain>/<existing>.py agent/components_enterpriseops_<domain>/<existing>.py.bak_iter<N>
@@ -208,8 +201,8 @@ Plus a JSON snapshot `meta_harness/logs_components_enterpriseops_<domain>/fronti
 from __future__ import annotations
 
 from agent.component_runtime_enterpriseops import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 
@@ -233,8 +226,6 @@ COMPONENT = Component(
     listens="pre_tool_use",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     emits=(),
     trust=Trust(
@@ -270,9 +261,7 @@ COMPONENT = Component(
     "workflow_patch": {
       "op": "add_node",
       "name": "<COMPONENT.name>",
-      "file": "agent/components_enterpriseops_<domain>/component_enterpriseops_<domain>_iter<N>_<slug>.py",
-      "edges_in": [],
-      "edges_out": []
+      "file": "agent/components_enterpriseops_<domain>/component_enterpriseops_<domain>_iter<N>_<slug>.py"
     }
   }
 }

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from agent.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 from agent.llm import chat
 
@@ -49,8 +49,6 @@ COMPONENT = Component(
     listens="post_llm_response",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.LLM_CALL,),
     priority=100,
     trust=Trust(
         evidence_anchor=(

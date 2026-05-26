@@ -64,12 +64,10 @@ away and the index becomes redundant.
 from __future__ import annotations
 
 from agent_tau2.component_runtime.types import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    StateScope,
     Trust,
 )
 
@@ -139,8 +137,6 @@ COMPONENT = Component(
     listens="session_start",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=150,                     # after discoverable_audit_channel (200 fires later)
     trust=Trust(
         evidence_anchor=(

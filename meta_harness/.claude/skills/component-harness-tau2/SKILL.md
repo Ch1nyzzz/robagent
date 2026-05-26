@@ -27,8 +27,6 @@ class Component:
     matcher: Optional[Callable[[Ctx], bool]]
     handler: Callable[[Ctx], Decision]
     trust: Trust                           # required verification block
-    state_scope: StateScope = StateScope.NONE
-    capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100                    # smaller fires first within an event bucket
     emits: tuple[str, ...] = ()            # self-doc of custom Tier-2/3 events
 ```
@@ -104,10 +102,6 @@ Event → effect of decisions on tau2 objects (handled internally by `_apply_tau
 | `post_llm_response` / `post_llm_response_raw` | next-turn SystemMessage              | rewrite first ToolCall args                | clear all tool_calls                  |
 | `post_tool_use` / `post_tool_result_raw` / `on_tool_error` | next-turn SystemMessage    | —                                          | terminate task                        |
 
-### StateScope
-
-`none` (default) / `session` (per-task scratchpad at `ctx.state[component_name]`) / `cross_session` (reserved).
-
 ### Trust
 
 ```python
@@ -125,18 +119,18 @@ class Trust:
 - `evidence_anchor`: name a system field, a tool schema field, a protocol invariant, or a general algorithm. If your answer is "doc_015 says…" the structure you're anchored to is inside your evidence — pick a different class or do not write the component.
 - `out_of_evidence_probe`: name one concrete case NOT in your evidence sims where your matcher would fire, and state what your handler returns on it. If you cannot construct one, the component overfits by construction.
 
-### Capability
+### Handler helpers on `ctx`
 
-| capability        | what it permits                                                       |
+| helper            | what it does                                                          |
 |-------------------|-----------------------------------------------------------------------|
-| `none`            | pure function                                                         |
-| `read_file`       | `open(path, "r")` on workspace paths                                  |
-| `http_get`        | outbound HTTP GET                                                     |
-| `llm_call`        | invoke `ctx.chat(...)` (locked SUT model name via `agent.llm.chat`)   |
-| `tool_call`       | issue a sub-tool-call within the handler (retriever pattern)          |
-| `mutate_shared`   | write to `ctx.shared`                                                 |
+| `ctx.chat(...)`   | sub-LLM call via the locked SUT model (mutable inference params)      |
+| `ctx.read_file`   | read a workspace file                                                 |
+| `ctx.fetch`       | outbound HTTP GET                                                     |
+| `ctx.shared`      | per-task dict, free to read/write                                     |
+| `ctx.emit(...)`   | fire a custom Tier-2/3 event (re-enters dispatcher; depth cap = 10)   |
+| `ctx.emit_upstream(key, value)` | write to `ctx.upstream` for downstream subscribers      |
 
-`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` — sub-LLM helper bound to the locked SUT model. `ctx.emit(custom_event_name, **fields)` re-enters the dispatcher (depth cap = 10). `ctx.emit_upstream(key, value)` writes to `ctx.upstream`.
+`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` is the sub-LLM helper bound to the locked SUT model.
 
 ## The class × event × decision matrix
 
@@ -161,7 +155,6 @@ nodes:
   - close_account_strip_optional_reason
   - discoverable_audit_channel
   - cc_account_workflow_doc_index
-edges: []                 # v1: declarative only
 disabled: []
 ```
 
@@ -178,7 +171,7 @@ Plus a JSON snapshot at `meta_harness/logs_tau2_components/frontier_workflow.jso
 Sugar derivable from these (NOT exposed as separate ops):
 
 - `wrap_tool(tool_name)` = `add_node` with `listens="pre_tool_use"` and `matcher_for_tool(tool_name)`.
-- `insert_before(node_id)` = `add_node` with edges_in pointing at the position. (v1 dispatch ignores edges; use `priority` to bias ordering.)
+- Ordering within an event bucket is controlled by `priority` (v1 dispatch is event-driven, not edge-driven).
 
 ## Composition model
 
@@ -198,7 +191,7 @@ Component fires land in `.component-state/iter<N>/fired.jsonl` for the durabilit
 - **You do NOT run the simulator.** No `tau2_runner.py`, no `tau2 run`. The outer loop scores.
 - **No task-specific code.** No customer names, account / document ids, per-task branching, no encoding of gold answers or gold action sets.
 - General documented policy may enter as **advisory context** via a `channel` (setup events) or an `induced_rule` (`pre_context_build` / `user_prompt_submit`, `inject_context` only).
-- **The target inference model is LOCKED via the tau2 LLM config.** Components may NOT spin up a different model. `ctx.chat()` IS permitted for sub-LLM verifier patterns — it routes through `agent.llm.chat` (locked SUT model name) with mutable inference params. Declare `Capability.LLM_CALL`.
+- **The target inference model is LOCKED via the tau2 LLM config.** Components may NOT spin up a different model. `ctx.chat()` IS permitted for sub-LLM verifier patterns — it routes through `agent.llm.chat` (locked SUT model name) with mutable inference params.
 - For `replace_node`, the **first shell action** you take MUST be:
   ```bash
   cp agent_tau2/components/<existing>.py agent_tau2/components/<existing>.py.bak_iter<N>
@@ -214,8 +207,8 @@ Component fires land in `.component-state/iter<N>/fired.jsonl` for the durabilit
 from __future__ import annotations
 
 from agent_tau2.component_runtime.types import (
-    Capability, Component, ComponentClass, ComponentContext,
-    Decision, StateScope, Trust,
+    Component, ComponentClass, ComponentContext,
+    Decision, Trust,
 )
 
 
@@ -236,8 +229,6 @@ COMPONENT = Component(
     listens="pre_tool_use",
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
     emits=(),
     trust=Trust(
@@ -292,7 +283,7 @@ STABLE STRUCTURE:     <evidence_anchor — system field / tool schema / protocol
 OUT_OF_EVIDENCE PROBE: <one concrete case NOT in the evidence sims where the matcher fires,
                        and exactly what the handler returns on it>
 PATCH_OP:             <add_node | replace_node | disable_node>
-COMPONENT:            listens=<...>, cls=<...>, state_scope=<...>, capabilities=<...>
+COMPONENT:            listens=<...>, cls=<...>
 EXPECTED_DELTA:       train-30 reward <current> → <expected>
 ```
 
@@ -347,8 +338,6 @@ For `replace_node`, FIRST run the `cp ... .bak_iter<N>` command (see Hard rules)
       "id": "<stable_component_id>",
       "cls": "mechanism_layer | reactive_guard | channel | induced_rule",
       "listens": "<event_name>",
-      "state_scope": "none | session | cross_session",
-      "capabilities": ["none | read_file | http_get | tool_call | llm_call | mutate_shared"],
       "file": "agent_tau2/components/<name>.py",
       "trust": {
         "evidence_anchor": "<stable structure outside evidence sims>",
@@ -361,9 +350,7 @@ For `replace_node`, FIRST run the `cp ... .bak_iter<N>` command (see Hard rules)
     "workflow_patch": {
       "op": "add_node | replace_node | disable_node",
       "name": "<component name; existing id for disable_node>",
-      "file": "agent_tau2/components/<name>.py",
-      "edges_in": [],
-      "edges_out": []
+      "file": "agent_tau2/components/<name>.py"
     }
   }
 }
@@ -385,7 +372,7 @@ CANDIDATE: candidate_iter<N>_<slug>
 |----------------------------------------|-------------------|------------------------|---------------------------|--------------------------------------------------------|
 | strip an optional arg                  | mechanism_layer   | `pre_tool_use`         | rewrite_tool_args         | `close_account_strip_optional_reason`                  |
 | inject a framework constant            | mechanism_layer   | `session_start`        | inject_context            | `discoverable_audit_channel`                           |
-| retrieve a KB doc per session          | channel           | `pre_context_build`    | inject_context            | retriever with `capabilities=(TOOL_CALL,)`             |
+| retrieve a KB doc per session          | channel           | `pre_context_build`    | inject_context            | retriever calling out to an MCP/sub-tool                |
 | wrap one tool's args                   | mechanism_layer   | `pre_tool_use`         | rewrite_tool_args         | matcher uses `matcher_for_tool("close_bank_account")`  |
 | react to `tool.failed`                 | reactive_guard    | `on_tool_error`        | inject_context            | append a "retry with X" note for next turn             |
 | block a malformed tool call            | reactive_guard    | `pre_tool_use`         | block                     | observed mid-turn shape error                          |
