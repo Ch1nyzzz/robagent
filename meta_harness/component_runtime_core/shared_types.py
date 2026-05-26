@@ -27,9 +27,6 @@ class ComponentClass(str, Enum):
       * REACTIVE_GUARD: tests an observed failure event (tool.failed,
         malformed call, empty/looping turn, finish_reason=length).
         Self-disables when the model stops failing.
-      * CHANNEL: injects content the agent cannot otherwise reach
-        (file contents, URL fetch result, advisory grammar).
-        Inject-only; never overrides the LLM.
       * INDUCED_RULE: a policy/instruction reading compiled from N
         evidence rows. Admitted only as ADVISORY-ONLY inject_context.
         Requires non-empty trust.out_of_evidence_probe.
@@ -39,7 +36,6 @@ class ComponentClass(str, Enum):
     """
     MECHANISM_LAYER       = "mechanism_layer"
     REACTIVE_GUARD        = "reactive_guard"
-    CHANNEL               = "channel"
     INDUCED_RULE          = "induced_rule"
     PREDICTIVE_HEURISTIC  = "predictive_heuristic"
 

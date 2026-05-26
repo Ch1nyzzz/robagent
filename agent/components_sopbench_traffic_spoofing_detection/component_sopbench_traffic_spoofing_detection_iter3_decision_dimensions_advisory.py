@@ -140,7 +140,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_decision_dimensions_advisory",
-    cls=ComponentClass.CHANNEL,
+    cls=ComponentClass.MECHANISM_LAYER,
     listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,

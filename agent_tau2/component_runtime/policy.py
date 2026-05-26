@@ -1,10 +1,9 @@
 """Class × event × decision-kind permission matrix for tau2 components.
 
-Five classes; two of them gated:
+Four classes; one of them gated:
 
   * MECHANISM_LAYER  — most permissive; anchored to off-evidence facts.
   * REACTIVE_GUARD   — block / rewrite / inject; triggers on observed failure.
-  * CHANNEL          — inject_context only; injects content otherwise unreachable.
   * INDUCED_RULE     — ADVISORY-ONLY: pre-context / user_prompt_submit +
                        inject_context only.
   * PREDICTIVE_HEURISTIC — REJECTED at load time.
@@ -66,13 +65,6 @@ ALLOWED: dict[ComponentClass, dict[str, set[DecisionKind]]] = {
         "on_tool_error":           _ALLOW | _INJECT,
         "on_explicit_terminate":   _ALLOW | _BLOCK,
         "stop":                    _ALLOW | _BLOCK,
-    },
-    ComponentClass.CHANNEL: {
-        "pre_context_build":       _ALLOW | _INJECT,
-        "session_start":           _ALLOW | _INJECT,
-        "task_received":           _ALLOW | _INJECT,
-        "pre_agent_construct":     _ALLOW | _INJECT,
-        "user_prompt_submit":      _ALLOW | _INJECT,
     },
     ComponentClass.INDUCED_RULE: {
         # Advisory-only: the LLM sees the injection and may override.

@@ -1,6 +1,5 @@
 nodes:
   - length_recovery_guard
-  - gaia_file_channel
   - cuneiform_numeric_decoder
 edges: []
 disabled: []

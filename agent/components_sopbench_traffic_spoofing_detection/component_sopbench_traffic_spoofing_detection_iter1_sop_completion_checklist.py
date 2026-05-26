@@ -103,7 +103,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 
 COMPONENT = Component(
     name="sopbench_traffic_spoofing_detection_sop_completion_checklist",
-    cls=ComponentClass.CHANNEL,
+    cls=ComponentClass.MECHANISM_LAYER,
     listens="session_start",
     matcher=_matches,
     handler=_handler,

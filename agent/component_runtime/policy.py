@@ -7,8 +7,6 @@ Five classes; identical risk semantics to the tau2 component runtime:
   * REACTIVE_GUARD   — block / rewrite / inject on observed signals
                         (`finish_reason=length`, empty content, LLM error
                         markers like "I cannot answer").
-  * CHANNEL          — inject_context only; injects content the agent
-                        cannot otherwise reach (file content, URL fetch).
   * INDUCED_RULE     — ADVISORY-ONLY at pre_context_build / pre_prompt_build;
                         inject_context only. LLM keeps final authority.
   * PREDICTIVE_HEURISTIC — REJECTED at load time.
@@ -71,15 +69,6 @@ ALLOWED: dict[ComponentClass, dict[str, set[DecisionKind]]] = {
         "post_tool_use":          _ALLOW | _REWRITE | _INJECT,
         "on_tool_error":          _ALLOW | _INJECT,
         "pre_answer_emit":        _ALLOW | _REWRITE | _BLOCK,
-    },
-    ComponentClass.CHANNEL: {
-        # CHANNEL is inject-only by definition — it sources content the
-        # agent cannot otherwise reach (file content, URL fetch).
-        "session_start":          _ALLOW | _INJECT,
-        "task_received":          _ALLOW | _INJECT,
-        "pre_prompt_build":       _ALLOW | _INJECT,
-        "pre_context_build":      _ALLOW | _INJECT,
-        "pre_agent_construct":    _ALLOW | _INJECT,
     },
     ComponentClass.INDUCED_RULE: {
         # Advisory-only: pre-context inject_context. The LLM keeps final

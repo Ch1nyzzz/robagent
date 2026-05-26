@@ -133,7 +133,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 
 COMPONENT = Component(
     name="cc_account_workflow_doc_index",
-    cls=ComponentClass.CHANNEL,
+    cls=ComponentClass.MECHANISM_LAYER,
     listens="session_start",
     matcher=_matches,
     handler=_handler,

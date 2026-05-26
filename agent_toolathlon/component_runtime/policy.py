@@ -1,6 +1,6 @@
 """Class × event × decision-kind permission matrix (toolathlon variant).
 
-Same five classes as tau2; matrix carries v2's relaxations:
+Same four classes as tau2; matrix carries v2's relaxations:
 
   * `pre_tool_use`: MCP tools are wrapped as SDK FunctionTools so REWRITE_TOOL_ARGS
     and true BLOCK are admitted. DEFER requires a replay queue and is rejected.
@@ -64,13 +64,6 @@ ALLOWED: dict[ComponentClass, dict[str, set[DecisionKind]]] = {
         "on_tool_error":           _ALLOW | _INJECT,
         "on_explicit_terminate":   _ALLOW | _BLOCK,
         "stop":                    _ALLOW | _BLOCK,
-    },
-    ComponentClass.CHANNEL: {
-        "pre_context_build":       _ALLOW | _INJECT,
-        "session_start":           _ALLOW | _INJECT,
-        "task_received":           _ALLOW | _INJECT,
-        "pre_agent_construct":     _ALLOW | _INJECT,
-        "user_prompt_submit":      _ALLOW | _INJECT,
     },
     ComponentClass.INDUCED_RULE: {
         "pre_context_build":       _ALLOW | _INJECT,

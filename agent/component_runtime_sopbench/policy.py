@@ -5,7 +5,6 @@ loop events. The five durability classes preserve the same semantics:
 
   * MECHANISM_LAYER — anchored to off-evidence facts.
   * REACTIVE_GUARD  — fire only on observed failure signals.
-  * CHANNEL         — inject-context only at session / prompt build.
   * INDUCED_RULE    — advisory-only at pre_context_build / pre_prompt_build.
   * PREDICTIVE_HEURISTIC — load-time rejected.
 
@@ -65,13 +64,6 @@ ALLOWED: dict[ComponentClass, dict[str, set[DecisionKind]]] = {
         "on_tool_error":           _ALLOW | _REWRITE | _INJECT,
         "on_explicit_terminate":   _ALLOW | _BLOCK,
         "pre_final_emit":          _ALLOW | _REWRITE | _BLOCK,
-    },
-    ComponentClass.CHANNEL: {
-        "session_start":           _ALLOW | _INJECT,
-        "task_received":           _ALLOW | _INJECT,
-        "pre_prompt_build":        _ALLOW | _INJECT,
-        "pre_context_build":       _ALLOW | _INJECT,
-        "pre_agent_construct":     _ALLOW | _INJECT,
     },
     ComponentClass.INDUCED_RULE: {
         "pre_prompt_build":        _ALLOW | _INJECT,
