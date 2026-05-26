@@ -1,96 +1,116 @@
 ---
 name: component-harness-toolathlon
-description: Run ONE iteration of Toolathlon (hkust-nlp/Toolathlon) harness evolution by proposing ONE workflow graph patch — a single Python file declaring `COMPONENT: Component` plus a patch op (add_node / replace_node / disable_node) against the frontier workflow at `meta_harness/workflows/toolathlon_main.yaml`. The component is typed by mount + class + state_scope, gated by a class×mount×decision permission matrix, and verified by a Trust block (evidence_anchor + out_of_evidence_probe). Sibling of component-harness-gaia / -tau2 / -sopbench; targets the OpenAI Agents SDK + MCP gateway loop that Toolathlon ships, with a smaller dispatched-mount set than tau2 due to SDK hook surface limits.
+description: Run ONE iteration of Toolathlon (hkust-nlp/Toolathlon) harness evolution by proposing ONE workflow graph patch — a single Python file declaring `COMPONENT: Component` plus a patch op (add_node / replace_node / disable_node) against the frontier workflow at `meta_harness/workflows/toolathlon_main.yaml`. Components subscribe to a named event via `listens=` and react via a Decision; admission is gated by a class×event×decision permission matrix and a Trust block (evidence_anchor + out_of_evidence_probe). Targets the OpenAI Agents SDK + MCP gateway loop with mandatory FunctionTool wrapping; some lifecycle events live inside the SDK Runner and are not yet observable.
 ---
 
 # component-harness-toolathlon
 
-Run ONE iteration of agent evolution against Toolathlon's task corpus by proposing ONE **workflow graph patch**. A patch is `add_node` / `replace_node` / `disable_node`, applied to the frontier workflow at `meta_harness/workflows/toolathlon_main.yaml`. The node added or replaced is one **component** — a single Python file in `agent_toolathlon/components/<name>.py` exporting `COMPONENT: Component`. **You do NOT run benchmarks.** You analyse prior baselines + traces, write one component, choose one patch op, write `pending_eval.json`, and exit. The outer loop applies the patch, scores it on the train subset (28 task ids), and admits or rejects.
+Run ONE iteration of agent evolution against Toolathlon's task corpus by proposing ONE **workflow graph patch** — `add_node` / `replace_node` / `disable_node` applied to `meta_harness/workflows/toolathlon_main.yaml`. The node added or replaced is one **component**: a single Python file under `agent_toolathlon/components/<name>.py` exporting `COMPONENT: Component`. **You do NOT run benchmarks.** You analyse prior baselines + traces, write one component, choose one patch op, write `pending_eval.json`, and exit. The outer loop applies the patch, scores it on the train subset (28 task ids), and admits or rejects.
 
 ## What Toolathlon tasks look like
 
 A task = one directory under `Toolathlon-src/tasks/finalpool/<task_id>/`. The agent receives:
-  * a natural-language user instruction (the `task_str` — what the user wants done)
+  * a natural-language user instruction (the `task_str`)
   * a set of MCP servers exposing tools (filesystem, GitHub, Notion, GCP, arxiv-local, scholarly, browser, etc.)
   * a Python-based per-task verifier that runs after the agent finishes
 
-The agent runs an OpenAI Agents SDK loop with MCP tools and (for multi-turn tasks) a user simulator. **The verifier is binary**: pass / fail. Failure mechanisms vary widely:
+The agent runs an OpenAI Agents SDK loop with MCP tools and (for multi-turn tasks) a user simulator. **The verifier is binary** (pass / fail). Failure mechanisms vary widely:
 
-  * **wrong final emission** — model wrote a passable answer but in the wrong format (Markdown when plain text was asked, extra commentary).
-  * **missing required tool call** — model answered from prior knowledge without invoking the prescribed lookup (e.g. didn't actually `arxiv_local-download_paper`).
-  * **tool-arg hallucination** — model passed `paper_id="2505.20286v1"` when the tool requires `paper_id="2505.20286"` (versionless), or invented filesystem paths outside `/workspace/dumps/workspace`.
-  * **prompt-instruction omission** — model ignored part of the multi-part user request (e.g. asked for title + abs_url + code_url, model returned only title).
-  * **scoping mistake** — model touched the wrong Notion page / GitHub repo because it didn't read the verifier's allowlist.
-  * **runaway tool loop** — model retried the same MCP call dozens of times when it kept failing (no fallback strategy).
-
-Your job is to pick ONE such mechanism present in ≥3 train failures and add ONE component that addresses it.
+  * **wrong final emission** — passable answer in wrong format (Markdown when plain text asked).
+  * **missing required tool call** — answered from prior knowledge without invoking the prescribed lookup.
+  * **tool-arg hallucination** — `paper_id="2505.20286v1"` (with version) when the corpus uses versionless ids, or invented filesystem paths outside `/workspace/dumps/workspace`.
+  * **prompt-instruction omission** — ignored part of a multi-part request.
+  * **scoping mistake** — touched the wrong Notion page / GitHub repo because the verifier's allowlist wasn't read.
+  * **runaway tool loop** — retried the same failing tool dozens of times.
 
 ## First principles
 
-1. **The LLM is the last resort.** Each iteration, find one place the LLM is doing work deterministic code could do — system-prompt scaffolding, output format constraints, tool-arg shape validation reminders, retry-on-loop heuristics — and move it into Python.
-2. **Decompose; don't defer.** A failure that looks "reasoning-bound" is rarely atomic. Split: what is the minimal judgment the LLM must make, and what computation / lookup / validation around it is fully deterministic? Build the deterministic part.
-3. **Code earns its place by capturing stable structure, not by fitting recent failures.** Anything you encode must point at a fact OUTSIDE evidence — a tool's declared JSON Schema, an SDK API field, an MCP server's documented behavior, the user-instruction grammar (e.g. "return X, Y, Z in this exact format"). An IF/THEN induced from N failed train rows is a memorised map; it overfits.
-4. **Prefer mounts that work in single-turn mode.** 90% of Toolathlon tasks run with `single_turn_mode=True`; the user simulator never re-prompts. PRE_CONTEXT_BUILD / SESSION_START / USER_PROMPT_SUBMIT all reach the LLM even in single-turn. POST_TOOL_USE INJECT_CONTEXT is QUEUED for the next outer user turn, which in single-turn tasks NEVER comes. Design accordingly.
+1. **The LLM is the last resort.** Move system-prompt scaffolding, output format constraints, tool-arg shape validation, retry-on-loop heuristics into Python.
+2. **Decompose; don't defer.** Split a "reasoning-bound" failure into the minimal LLM judgment + the deterministic computation around it.
+3. **Code earns its place by capturing stable structure, not by fitting recent failures.** Anchor on a tool's declared JSON Schema, an SDK API field, an MCP server's documented behavior, the user-instruction grammar ("return X, Y, Z in this exact format"). IF/THEN induced from N failed train rows is a memorised map; it overfits.
+4. **Prefer events that work in single-turn mode.** ~90% of Toolathlon tasks run with `single_turn_mode=True`; the user simulator never re-prompts. Setup events (`pre_context_build` / `session_start` / `user_prompt_submit`) and per-tool events (`pre_tool_use` / `post_tool_use`) reach the LLM in every task. Post-Runner events (`post_llm_response_raw`, `on_explicit_terminate`, `session_end`) fire after the SDK Runner returns.
 
-## v2 mount semantics (read this carefully)
+## SDK-internal event gap (read this carefully)
 
-Toolathlon v2 wraps every MCP tool as an SDK FunctionTool before handing it to the Agent. This lets the component runtime intercept BEFORE and AFTER the real tool invocation with the actual arguments and the actual result string — solving the single-turn limitations of v1. (The v1 no-args fallback path has been removed; tool wrapping is now mandatory.)
+Toolathlon mandates v2 tool wrapping: every MCP tool is wrapped as an SDK FunctionTool BEFORE the Agent sees it, so the dispatcher can intercept BEFORE and AFTER the real tool invocation with the actual arguments and the actual result string.
 
-| mount               | when it fires                                                 | dispatched? | what works                                                                                                                                                       |
-|---------------------|---------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `pre_context_build` | once per task, before Agent() is constructed                   | ✅           | INJECT_CONTEXT → spliced into Agent.instructions                                                                                                                 |
-| `session_start`     | once per task, after PRE_CONTEXT_BUILD                         | ✅           | INJECT_CONTEXT → spliced into Agent.instructions (after PRE_CONTEXT_BUILD's contributions)                                                                       |
-| `user_prompt_submit`| each outer user turn, after user_query obtained                | ✅           | INJECT_CONTEXT → appended to the user message before it lands in logs                                                                                            |
-| `pre_tool_use`      | inside FunctionTool wrapper, before MCP `call_tool`            | ✅           | ALLOW; **REWRITE_TOOL_ARGS** (real-args-aware, sequential composition across components); **true BLOCK** (tool is NOT called; component-block string returned). DEFER still rejected (v2.5). |
-| `post_llm_response` | SDK has NO mid-turn AssistantMessage hook                      | ❌ REJECTED  | (registration fails at load time — would need wrapping ModelProvider; v3.)                                                                                       |
-| `post_tool_use`     | inside FunctionTool wrapper, after MCP `call_tool`             | ✅           | INJECT_CONTEXT is **concatenated INTO the tool result string**, so the LLM sees it on its very next inference — works in single-turn AND multi-turn.             |
-| `stop`              | reserved                                                       | ❌ not dispatched yet | (registration allowed; runtime ignores)                                                                                                                          |
-| `session_end`       | reserved                                                       | ❌ not dispatched yet | (registration allowed; runtime ignores)                                                                                                                          |
+Some events live INSIDE the SDK Runner's `Runner.run(...)` call and are not surfaced to the dispatcher. These are **declared in policy.py** (so a forward-compatible YAML can mention them) but **NOT emitted in v1**:
 
-**Practical guidance:**
+  * `pre_llm_request` — mid-turn pre-inference hook
+  * `pre_tool_arg_validation` — mid-turn arg-validation phase
+  * `post_tool_result_raw` — mid-turn raw-result anchor
+  * `on_tool_error` — mid-turn tool-error event
+  * `on_no_tool_call_emitted` — mid-turn no-tool-call event
 
-* **PRE_TOOL_USE REWRITE_TOOL_ARGS / BLOCK and POST_TOOL_USE INJECT_CONTEXT now ACTUALLY WORK in single-turn tasks.** They are no longer multi-turn-only as in v1.
-* **REWRITE_TOOL_ARGS composes**: if multiple components match the same tool, they fire in `(priority, insertion)` order and each sees the previous component's rewritten args.
-* **BLOCK short-circuits**: the MCP `call_tool` is skipped entirely; the tool result handed back to the LLM is a `<component_block …>` string. The LLM sees that and can decide what to do next.
-* **DEFER is still rejected.** It needs a replay queue (post-condition re-invocation) which v2.5 will add.
-* **POST_LLM_RESPONSE is still rejected.** Wrapping ModelProvider is the v3 path.
-* PRE_CONTEXT_BUILD / SESSION_START / USER_PROMPT_SUBMIT still work in every task as in v1; prefer them when the failure mode is "wrong system prompt / wrong user instruction interpretation".
+Subscribers to these events load but never fire. Use the post-Runner subset for now (`post_llm_response_raw` + `on_length_truncation` + `on_empty_response`); these fire AFTER `Runner.run` returns and see `result.raw_responses`.
 
 ## The component model
 
 ```python
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Component:
     name: str
     cls: ComponentClass
-    mount: Mount
+    listens: str                           # event name the dispatcher routes on
     matcher: Optional[Callable[[Ctx], bool]]
     handler: Callable[[Ctx], Decision]
     trust: Trust
     state_scope: StateScope = StateScope.NONE
     capabilities: tuple[Capability, ...] = (Capability.NONE,)
     priority: int = 100
+    emits: tuple[str, ...] = ()
 ```
 
-### ComponentClass enum
+### Events the toolathlon runtime emits
 
-| class                 | the matcher tests…                                                                                                                                                                       | risk                          |
-|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------|
-| `mechanism_layer`     | a system field, an MCP tool-declared JSON Schema, an SDK lifecycle property, a general algorithm (URL parse, version stripping, regex on tool name)                                       | LOW                           |
-| `reactive_guard`      | an observed failure event (tool error string contains "denied", missing required substring in final response, repeated identical tool call indicating a loop)                              | LOW                           |
-| `channel`             | task structure — instruction text grammar ("return X, Y, Z"), allowed-MCP-list, presence/absence of a server in `task_config.needed_mcp_servers`                                          | LOW                           |
-| `induced_rule`        | a reading of policy/instruction text — IF/THEN compiled from N evidence rows                                                                                                              | HIGH (admitted ADVISORY-ONLY) |
-| `predictive_heuristic`| raw prompt / response text guessing what the model is about to do                                                                                                                         | REJECTED at load time         |
+Per-task setup (in `setup_agent`, before SDK Agent is built):
+
+| event                   | when it fires                                                          | typical use                                              |
+|-------------------------|------------------------------------------------------------------------|----------------------------------------------------------|
+| `task_received`         | top of `run_interaction_loop`                                          | lifecycle anchor                                         |
+| `pre_context_build`     | in `setup_agent`, paired with the instructions-build phase             | inject system-prompt scaffolding                         |
+| `session_start`         | in `setup_agent`, after pre_context_build                              | inject framework constants                               |
+| `pre_agent_construct`   | last hook in `setup_agent` before `Agent(...)` is built                | inference-hint injection                                 |
+| `user_prompt_submit`    | each outer user turn, after user_query obtained                         | append text to the user message before it lands in logs  |
+
+Per MCP tool call (via FunctionTool wrapper; sees REAL args + result):
+
+| event                       | when it fires                                                          | typical use                                                       |
+|-----------------------------|------------------------------------------------------------------------|-------------------------------------------------------------------|
+| `pre_tool_use`              | inside FunctionTool wrapper, before MCP `call_tool`                     | ALLOW / REWRITE_TOOL_ARGS / true BLOCK (composes across components) |
+| `post_tool_use`             | inside FunctionTool wrapper, after MCP `call_tool`                      | INJECT_CONTEXT is **concatenated INTO the tool result string** so the LLM sees it on its next inference |
+
+Post-Runner (after `Runner.run` returns):
+
+| event                       | when it fires                                                          | typical use                                                       |
+|-----------------------------|------------------------------------------------------------------------|-------------------------------------------------------------------|
+| `post_llm_response_raw`     | post-`Runner.run`, parses `result.raw_responses`                       | observe / inject for next turn                                    |
+| `on_length_truncation`      | **synthesised** when `result.raw_responses[-1].finish_reason == "length"` | flag the limit                                                    |
+| `on_empty_response`         | **synthesised** when `result.final_output.strip() == ""`               | retry hint                                                        |
+| `on_explicit_terminate`     | after `termination_checker(...)` returns True                          | **artifact gate**: BLOCK refuses termination and the loop continues |
+| `session_end`               | top of `save_results`                                                  | bookkeeping                                                       |
+
+### Component classes
+
+| class                  | what the matcher tests                                                                                                              | risk                          |
+|------------------------|-------------------------------------------------------------------------------------------------------------------------------------|-------------------------------|
+| `mechanism_layer`      | a system field, an MCP tool-declared JSON Schema, an SDK lifecycle property, a general algorithm (URL parse, version stripping)      | LOW                           |
+| `reactive_guard`       | an observed failure event (tool error string contains "denied", missing required substring in final response, repeated identical call) | LOW                           |
+| `channel`              | task structure — instruction text grammar ("return X, Y, Z"), allowed-MCP-list, presence/absence of a server in `task_config`         | LOW                           |
+| `induced_rule`         | a reading of policy/instruction text — IF/THEN compiled from N evidence rows                                                          | HIGH (admitted ADVISORY-ONLY) |
+| `predictive_heuristic` | raw prompt / response text guessing what the model is about to do                                                                     | REJECTED at load time         |
 
 ### Decision
 
-| decision         | semantics in toolathlon v1                                                                                                                                                                                |
-|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `allow`          | no-op                                                                                                                                                                                                       |
-| `block`          | PRE_TOOL_USE (v2): the MCP `call_tool` is SKIPPED; the tool result handed to the LLM is a `<component_block …>` string. STOP: reserved.                                                                     |
-| `inject_context` | PRE_CONTEXT_BUILD / SESSION_START → appended to `Agent.instructions`; USER_PROMPT_SUBMIT → appended to user_query before it lands in logs; POST_TOOL_USE (v2) → CONCATENATED into the tool result string.    |
-| `rewrite_tool_args` | PRE_TOOL_USE (v2): the dict you return REPLACES the LLM-emitted args before the MCP call. Multiple components compose left→right.                                                                            |
-| `defer`          | **REJECTED at load time** in v2 (replay queue lands in v2.5).                                                                                                                                                |
+| decision           | semantics                                                                                                                                                                                                |
+|--------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `allow`            | no-op                                                                                                                                                                                                    |
+| `block`            | `pre_tool_use`: the MCP `call_tool` is SKIPPED; the tool result handed to the LLM is a `<component_block …>` string. `on_explicit_terminate`: refuses termination (loop continues). Other events: terminate task. |
+| `inject_context`   | setup events → spliced into `Agent.instructions`. `user_prompt_submit` → appended to user_query before it lands in logs. `post_tool_use` → CONCATENATED into the tool result string (LLM sees next inference). |
+| `rewrite_tool_args`| `pre_tool_use`: the dict you return REPLACES the LLM-emitted args before the MCP call. Multiple components compose left→right.                                                                            |
+| `defer`            | REJECTED at load time (replay queue is v2.5).                                                                                                                                                            |
+
+`ctx.tool_call` at `pre_tool_use` is a **dict** `{"name": str, "arguments": dict}` (not a tau2-style ToolCall object). Components that REWRITE_TOOL_ARGS return `Decision.rewrite_tool_args(new_args_dict)`; the apply layer rebuilds the dict.
 
 ### StateScope
 
@@ -101,34 +121,65 @@ class Component:
 ```python
 @dataclass(frozen=True)
 class Trust:
-    evidence_anchor: str        # REQUIRED — name the stable structure being targeted
+    evidence_anchor: str        # REQUIRED — name the stable structure outside evidence
     blast_radius: str           # REQUIRED: local | workflow | global
-    rollback_when: str          # REQUIRED — concrete signal that says "stop using this"
+    rollback_when: str          # REQUIRED — concrete disable signal
     out_of_evidence_probe: str  # REQUIRED for INDUCED_RULE
     fallback: str               # OPTIONAL
 ```
 
 ### Capability
 
-`none` / `read_file` / `http_get` / `llm_call` / `tool_call` / `mutate_shared`.
+| capability        | what it permits                                                       |
+|-------------------|-----------------------------------------------------------------------|
+| `none`            | pure function                                                         |
+| `read_file`       | `open(path, "r")` on workspace paths                                  |
+| `http_get`        | outbound HTTP GET                                                     |
+| `llm_call`        | invoke `ctx.chat(...)` (locked SUT model via `agent.llm.chat`, NOT the SDK ModelProvider) |
+| `tool_call`       | issue a sub-tool-call within the handler                              |
+| `mutate_shared`   | write to `ctx.shared`                                                 |
 
-## The class × mount × decision matrix (toolathlon v2)
+`ctx.chat(messages, max_tokens=..., temperature=..., system_override=..., tools=...)` routes through `agent.llm.chat` (the SAME locked SUT model name the SDK Runner uses, NOT the OpenAI Agents SDK ModelProvider). No `model=` kwarg. `ctx.emit(custom_event_name, **fields)` re-enters the dispatcher (depth cap = 10). `ctx.emit_upstream(key, value)` writes to `ctx.upstream`.
+
+## The class × event × decision matrix
 
 Load-time gate at `agent_toolathlon/component_runtime/policy.py::ALLOWED`.
 
-| class \ mount         | pre_context_build | session_start | user_prompt_submit | pre_tool_use            | post_llm_response | post_tool_use   | stop          | session_end |
-|-----------------------|-------------------|---------------|--------------------|-------------------------|-------------------|-----------------|---------------|-------------|
-| `mechanism_layer`     | allow, inject     | allow, inject | allow, inject      | allow, block, rewrite   | **rejected**      | allow, inject   | allow, block  | allow       |
-| `reactive_guard`      | —                 | —             | allow, inject      | allow, block, rewrite   | **rejected**      | allow, inject   | allow, block  | allow       |
-| `channel`             | allow, inject     | allow, inject | allow, inject      | —                       | **rejected**      | —               | —             | —           |
-| `induced_rule`        | allow, inject     | —             | allow, inject      | —                       | **rejected**      | —               | —             | —           |
-| `predictive_heuristic`| rejected          | rejected      | rejected           | rejected                | rejected          | rejected        | rejected      | rejected    |
+Setup events (`task_received`, `pre_context_build`, `session_start`, `pre_agent_construct`, `user_prompt_submit`):
 
-A component whose (class, mount) is absent raises `ComponentPolicyError` at load. A handler that emits a non-admitted decision raises at fire time. `post_llm_response` is rejected for ALL classes in v2 (would need v3 ModelProvider wrapping). `defer` is rejected for ALL classes in v2 (would need v2.5 replay queue).
+| class                  | admissible decisions                            |
+|------------------------|-------------------------------------------------|
+| `mechanism_layer`      | inject_context                                  |
+| `channel`              | inject_context                                  |
+| `induced_rule`         | inject_context (`pre_context_build` / `user_prompt_submit` only — ADVISORY) |
+| `reactive_guard`       | inject_context (`user_prompt_submit` only)      |
+
+Per-tool events (`pre_tool_use`, `post_tool_use`):
+
+| class                  | admissible decisions                                                                |
+|------------------------|-------------------------------------------------------------------------------------|
+| `mechanism_layer`      | `pre_tool_use`: allow, block, rewrite_tool_args. `post_tool_use`: allow, inject_context. |
+| `reactive_guard`       | same                                                                                |
+
+Post-Runner events (`post_llm_response_raw`, `on_length_truncation`, `on_empty_response`):
+
+| class                  | admissible decisions                            |
+|------------------------|-------------------------------------------------|
+| `mechanism_layer`      | inject_context (+ block on synthesised failure events) |
+| `reactive_guard`       | same                                            |
+
+Termination events (`on_explicit_terminate`, `stop`):
+
+| class                  | admissible decisions                            |
+|------------------------|-------------------------------------------------|
+| `mechanism_layer`      | block                                            |
+| `reactive_guard`       | block                                            |
+
+`predictive_heuristic` is rejected at every event.
 
 ## The workflow graph
 
-Single frontier yaml: `meta_harness/workflows/toolathlon_main.yaml`
+Single frontier YAML: `meta_harness/workflows/toolathlon_main.yaml`.
 
 ```yaml
 nodes:
@@ -144,7 +195,7 @@ Plus a JSON snapshot `meta_harness/logs_components_toolathlon/frontier_workflow.
 | op             | meaning                                                                                                   |
 |----------------|-----------------------------------------------------------------------------------------------------------|
 | `add_node`     | append a new node; `agent_toolathlon/components/<id>.py` must be newly written                            |
-| `replace_node` | keep the existing node id; overwrite the file with new behavior (same `COMPONENT.name`)                   |
+| `replace_node` | keep the existing node id; overwrite the file (same `COMPONENT.name`)                                     |
 | `disable_node` | add the id to `disabled:`; file remains for the durability audit                                          |
 
 ## Hard rules
@@ -152,15 +203,14 @@ Plus a JSON snapshot `meta_harness/logs_components_toolathlon/frontier_workflow.
 - Exactly ONE patch per invocation.
 - **You do NOT run benchmarks.** No `toolathlon_runner.py`. The outer loop scores.
 - **No task-specific code.** No train task_ids in matchers. No hardcoded entity strings (paper IDs, GitHub repo names, Notion page slugs). No encoded gold answers.
-- **The target inference model (deepseek-v4-pro via Together AI) is LOCKED.** It is the System Under Test. Do NOT call any other LLM API from a component; do NOT attempt to override the model in `toolathlon_runner.py`.
-- **`ctx.chat()` (Phase C+) is permitted for sub-LLM verifier patterns** — it goes through `agent.llm.chat()` (the locked SUT model name, the SAME one the SDK Runner uses, NOT the OpenAI Agents SDK ModelProvider). Mutable inference params only: `ctx.chat(messages, max_tokens=8192, temperature=0.0, system_override=None, tools=None)`. The helper does NOT accept a `model=` kwarg. Declaring `capabilities=(Capability.LLM_CALL,)` is required.
+- **The target inference model (deepseek-v4-pro via Together AI) is LOCKED.** Components do NOT call any other LLM API. `ctx.chat()` IS permitted (locked SUT model name via `agent.llm.chat`, NOT the SDK ModelProvider). Declare `Capability.LLM_CALL`.
 - For `replace_node`, the **first shell action** MUST be:
   ```bash
   cp agent_toolathlon/components/<existing>.py agent_toolathlon/components/<existing>.py.bak_iter<N>
   ```
-  The outer loop relies on the `.bak` to roll back on reject.
-- READ-ONLY (do not modify): `Toolathlon-src/`, `bench/toolathlon/`, `toolathlon_runner.py`, `agent_toolathlon/v0/`, `agent_toolathlon/component_runtime/` (the runtime itself is locked; you only write to `agent_toolathlon/components/`). Also: `meta_harness/meta_harness_components_toolathlon.py`, `meta_harness/toolathlon_*.txt`.
-- Component file naming: `agent_toolathlon/components/component_iter<N>_<slug>.py`. The `COMPONENT.name` should follow the same `component_iter<N>_<slug>` pattern (helps audit which iter introduced it).
+- READ-ONLY: `Toolathlon-src/`, `bench/toolathlon/`, `toolathlon_runner.py`, `agent_toolathlon/v0/`, `agent_toolathlon/component_runtime/`. Also: `meta_harness/meta_harness_components_toolathlon.py`, `meta_harness/toolathlon_*.txt`.
+- Component file naming: `agent_toolathlon/components/component_iter<N>_<slug>.py`. The `COMPONENT.name` should follow the same pattern.
+- Components that need DEFER or the 5 SDK-internal events (`pre_llm_request` / `pre_tool_arg_validation` / `post_tool_result_raw` / `on_tool_error` / `on_no_tool_call_emitted`) load but never fire — pick a different design.
 
 ## Component file template
 
@@ -170,57 +220,55 @@ from __future__ import annotations
 
 from agent_toolathlon.component_runtime.types import (
     Capability, Component, ComponentClass, ComponentContext,
-    Decision, Mount, StateScope, Trust,
+    Decision, StateScope, Trust,
 )
 
 
 def _matches(ctx: ComponentContext) -> bool:
-    # Read ctx.tool_name (PRE_TOOL_USE / POST_TOOL_USE), ctx.tool_args (= {} on
-    # PRE_TOOL_USE in v1 — SDK doesn't surface args), ctx.incoming_message
-    # (POST_TOOL_USE: dict with tool_name + output string), ctx.history
-    # (snapshot of self.logs), ctx.tool_names (full tool list), ctx.shared.
-    # ctx.proposed_system_prompt is the in-progress prompt during PRE_CONTEXT_BUILD.
-    #
+    # Read ctx.tool_name (pre/post_tool_use), ctx.tool_args (REAL args via wrapper),
+    # ctx.incoming_message (post_tool_use: dict with tool_name + args + output),
+    # ctx.history (snapshot of self.logs), ctx.tool_names (full tool list),
+    # ctx.shared, ctx.proposed_system_prompt (during setup events).
+    # ctx.event names the firing event for branchable handlers.
     # NEVER read or compare against task_id-specific data — that is memorisation.
     ...
 
 
 def _handler(ctx: ComponentContext) -> Decision:
-    return Decision.inject_context("...")   # or allow / block
+    return Decision.inject_context("...")   # or allow / block / rewrite_tool_args
 
 
 COMPONENT = Component(
     name="component_iter<N>_<slug>",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.PRE_CONTEXT_BUILD,
+    listens="pre_context_build",
     matcher=_matches,                       # or None for always-on
     handler=_handler,
     state_scope=StateScope.NONE,
     capabilities=(Capability.NONE,),
     priority=100,
+    emits=(),
     trust=Trust(
-        evidence_anchor="...",      # what stable structure is this targeting?
-        blast_radius="local",       # local | workflow | global
-        rollback_when="...",        # how would you know to disable this?
-        # out_of_evidence_probe="..." if INDUCED_RULE
+        evidence_anchor="...",
+        blast_radius="local",
+        rollback_when="...",
+        out_of_evidence_probe="",   # required if cls=induced_rule
     ),
 )
 ```
 
 ## `pending_eval.json` schema
 
-The outer loop reads this file after your run. Write it once, validated.
-
 ```json
 {
   "candidate": {
     "name": "candidate_toolathlon_iter<N>_<slug>",
-    "hypothesis": "one-sentence claim of what the failure mode is",
+    "hypothesis": "one-sentence claim of the failure mode",
     "changes": "one-sentence description of what your component does",
     "component": {
       "name": "<COMPONENT.name>",
       "cls": "mechanism_layer",
-      "mount": "pre_context_build",
+      "listens": "pre_context_build",
       "file": "agent_toolathlon/components/component_iter<N>_<slug>.py",
       "trust": {
         "evidence_anchor": "...",
@@ -241,139 +289,83 @@ The outer loop reads this file after your run. Write it once, validated.
 }
 ```
 
-For `disable_node`, omit `file` and the only `name` is the existing component's name. For `replace_node`, `name` reuses the existing `COMPONENT.name`; `file` is the same path you overwrote (registry uses last-loaded-wins by name).
+For `disable_node`, omit `file` and the only `name` is the existing component's name. For `replace_node`, `name` reuses the existing `COMPONENT.name`.
 
 ## How to investigate
 
-State files and trace locations (read-only; the outer loop writes them):
+State files and trace locations:
 
 ```
 meta_harness/workflows/toolathlon_main.yaml                            active workflow graph
 meta_harness/logs_components_toolathlon/frontier_workflow.json         frontier snapshot
-meta_harness/logs_components_toolathlon/frontier_val.json              per-task best for the CURRENT frontier (= last accepted candidate)
-meta_harness/logs_components_toolathlon/evolution_summary.jsonl        one row per iter (incl. rejected); each row's per_task[*].dump_dir points at THAT iter's run
-.component-state-toolathlon/toolathlon_iter<K>/fired.jsonl             which components fired in iter K (preserved per iter)
+meta_harness/logs_components_toolathlon/frontier_val.json              per-task best
+meta_harness/logs_components_toolathlon/evolution_summary.jsonl        one row per iter (incl. rejected)
+.component-state-toolathlon/toolathlon_iter<K>/fired.jsonl             which components fired in iter K
 ```
 
-Per-task trace directories (preserved across iters; nothing is overwritten):
+Per-task trace directories (preserved across iters):
 
 ```
 Toolathlon-runs/v0/finalpool/<tid>/                          v0 baseline / iter 0
-Toolathlon-runs/cr/iter<K>/finalpool/<tid>/                  iter K's candidate run (accepted OR rejected)
-Toolathlon-runs/cr/final_test/finalpool/<tid>/               held-out test pass (only after evolution finishes)
+Toolathlon-runs/cr/iter<K>/finalpool/<tid>/                  iter K's candidate run
+Toolathlon-runs/cr/final_test/finalpool/<tid>/               held-out test (only after evolution finishes)
 ```
 
-Each `<tid>/` directory holds `traj_log.json`, `eval_res.json`, `host_loop.log`. The `evolution_summary.jsonl` row for iter K already has `per_task[*].dump_dir` filled with the correct `cr/iter<K>/...` path — you don't have to construct it.
+Each `<tid>/` directory holds `traj_log.json`, `eval_res.json`, `host_loop.log`. The `evolution_summary.jsonl` row for iter K already has `per_task[*].dump_dir` filled with the correct path.
 
-1. **Read `frontier_val.json`'s `per_task` map.** Each entry has `passed`, `tier`, `dump_dir`, `error`. This is the CURRENT frontier — start here to see what the in-place candidate still fails.
-2. **If `evolution_summary.jsonl` has any row with iter ≥ 1, also read those rows.** Each one names a `candidate.hypothesis` + `train_score` + `accepted` + `per_task`, and its `per_task[*].dump_dir` points at the actual `cr/iter<K>/finalpool/<tid>/` trace from that iter. Compare a prior row's per_task against the v0 / frontier per_task to see which tasks that candidate broke (regression = was passing before, failing in iter K). Avoid re-proposing a mechanism a prior `hypothesis` already covered.
+1. **Read `frontier_val.json`'s `per_task` map.** Each entry has `passed`, `tier`, `dump_dir`, `error`. This is the CURRENT frontier — start here.
+2. **If `evolution_summary.jsonl` has any row with iter ≥ 1, also read those rows.** Each names a `candidate.hypothesis` + `train_score` + `accepted` + `per_task`. Compare a prior row's per_task against the v0 / frontier per_task to see which tasks that candidate broke (regression = was passing before, failing in iter K). Avoid re-proposing a mechanism a prior `hypothesis` already covered.
 3. **For each failing task_id (`passed=false`)**, read the three trace files at `<dump_dir>/`:
-   * `traj_log.json` — full message log (user / assistant / tool messages), `config.single_turn_mode`, `key_stats`, `status` (success / failed / max_turns_reached / interrupted).
+   * `traj_log.json` — full message log, `config.single_turn_mode`, `key_stats`, `status` (success / failed / max_turns_reached / interrupted).
    * `eval_res.json` — `{pass: bool, details: str}` from the per-task verifier (often the most informative single file).
    * `host_loop.log` — pretty-printed TOOL_CALL / TOOL_OUT / SUMMARY events in chronological order.
 4. **Look for ≥3 failures sharing the same mechanism.** Examples:
-   - 3 failures end with the assistant returning a Markdown-formatted answer when the instruction asked for "plain text without markdown" → `pre_context_build` INJECT a strict-format reminder.
-   - 3 failures call `gw-arxiv_local-read_paper` with `paper_id="2505.20286v1"` (with version) when the corpus only has versionless ids → `user_prompt_submit` INJECT a hint about arxiv id versionless form, OR `session_start` INJECT a behavioral rule about MCP tool argument shape.
-   - 3 failures retry the same failing tool >5 times in a row (eval_res shows max_turns_reached) → `session_start` INJECT a "if a tool fails the same way 3 times, switch strategy" instruction (MECHANISM_LAYER, anchored on the general algorithmic principle that repeated identical failures indicate stuck-state).
-5. **Form ONE hypothesis** and tie it to a stable structure (an MCP tool's schema; the user instruction's grammar; an SDK status field; an OpenAI API field). State the structure in `trust.evidence_anchor`.
-6. **Write ONE component** at the appropriate mount with the smallest possible matcher/handler. Resist embedding task-specific entity names.
-7. **Validate registration**:
+   - 3 failures end with the assistant returning a Markdown answer when the instruction asked for "plain text without markdown" → `pre_context_build` INJECT a strict-format reminder.
+   - 3 failures call `gw-arxiv_local-read_paper` with `paper_id="2505.20286v1"` (with version) when the corpus only has versionless ids → `pre_tool_use` REWRITE_TOOL_ARGS that strips the version suffix (anchor: arxiv id grammar).
+   - 3 failures retry the same failing tool >5 times → `session_start` INJECT a "if a tool fails the same way 3 times, switch strategy" instruction.
+5. **Form ONE hypothesis** tied to a stable structure (an MCP tool's schema; the user instruction's grammar; an SDK status field; an OpenAI API field). State the structure in `trust.evidence_anchor`.
+6. **Write ONE component** with the smallest possible matcher/handler. Resist embedding task-specific entity names.
+7. **Validate**:
    ```bash
    python -c "
    import sys; sys.path.insert(0, '.')
    from agent_toolathlon.component_runtime.registry import load_components_from_dir
    comps = load_components_from_dir('agent_toolathlon/components',
                                      only=['<COMPONENT.name>'])
-   assert any(c.name == '<COMPONENT.name>' for cs in comps.values() for c in cs)
+   assert any(c.name == '<COMPONENT.name>' for c in comps)
    print('ok')
    "
    ```
 8. **Write `pending_eval.json`** and print `CANDIDATE: <name>`.
 
-## Event runtime additions (Phase D)
+## Common patterns
 
-The mount-based dispatch above (via `ComponentDispatcher.fire_*` and SDK
-hooks) remains the canonical path for `PRE_TOOL_USE` / `POST_TOOL_USE` (where
-the SDK surface is well-defined). Phase D adds a parallel **Tier-1 event**
-namespace that fires through a core dispatcher around the SDK Runner — so
-components can observe post-Runner signals the SDK does not surface mid-turn.
+| pattern                                              | class             | listens                       | decision                                                  |
+|------------------------------------------------------|-------------------|-------------------------------|-----------------------------------------------------------|
+| strict-format reminder in instructions               | mechanism_layer   | `pre_context_build`           | inject_context                                            |
+| inject "always strip arxiv version suffix"           | mechanism_layer   | `session_start`               | inject_context                                            |
+| advisory: policy paragraph                           | induced_rule      | `pre_context_build`           | inject_context                                            |
+| reactive note appended to user query                 | reactive_guard    | `user_prompt_submit`          | inject_context                                            |
+| strip arxiv version suffix from tool args            | mechanism_layer   | `pre_tool_use`                | rewrite_tool_args                                         |
+| block tool call outside workspace dir                | reactive_guard    | `pre_tool_use`                | block                                                     |
+| reformat tool output before LLM sees it              | mechanism_layer   | `post_tool_use`               | inject_context (concatenated into tool result string)     |
+| artifact gate before termination                     | reactive_guard    | `on_explicit_terminate`       | block (refuses termination; loop continues)               |
+| length-recovery hint                                 | reactive_guard    | `on_length_truncation`        | inject_context                                            |
+| publish task progress for downstream observer        | mechanism_layer   | A `listens="post_llm_response_raw"`, emits `iter<N>_<slug>_progress` → B `listens="iter<N>_<slug>_progress"` | allow / inject_context |
 
-### Tier-1 events emitted by `CrTaskAgent`
-
-| event                       | when it fires                                                         | emitted in v1? |
-|-----------------------------|-----------------------------------------------------------------------|----------------|
-| `task_received`             | top of `run_interaction_loop`                                          | ✅              |
-| `pre_context_build`         | in `setup_agent`, paired with the PRE_CONTEXT_BUILD instruction phase  | ✅              |
-| `pre_agent_construct`       | in `setup_agent`, just before `Agent(...)` is built                    | ✅              |
-| `pre_llm_request`           | inside SDK Runner (no hook available)                                  | ❌ deferred (v3)|
-| `post_llm_response_raw`     | after `ContextManagedRunner.run` returns                               | ✅              |
-| `on_length_truncation`      | **synthesised** when `result.raw_responses[-1].finish_reason=="length"` | ✅              |
-| `on_empty_response`         | **synthesised** when `result.final_output.strip() == ""`               | ✅              |
-| `on_no_tool_call_emitted`   | inside SDK Runner mid-turn                                             | ❌ deferred (v3)|
-| `pre_tool_arg_validation`   | inside SDK Runner per tool                                             | ❌ deferred (v3)|
-| `pre_tool_use`              | via `ComponentDispatcher.fire_pre_tool_use*` (v1/v2)                   | ✅ (mount path) |
-| `post_tool_use`             | via `ComponentDispatcher.fire_post_tool_use*` (v1/v2)                  | ✅ (mount path) |
-| `post_tool_result_raw`      | inside SDK Runner per tool                                             | ❌ deferred (v3)|
-| `on_tool_error`             | inside SDK Runner per tool                                             | ❌ deferred (v3)|
-| `on_explicit_terminate`     | after `termination_checker(...)` returns True                          | ✅ (subscribers can BLOCK to refuse termination — agent continues the loop) |
-| `session_end`               | top of `save_results`                                                  | ✅              |
-
-The 5 deferred events are declared in `ALLOWED` so a forward-compatible YAML
-can still reference them, but no runtime emit happens in v1 — subscribers
-load but never fire. Use the post-Runner subset for now.
-
-### `Component.listens` and `emits` (Phase B)
-
-```python
-COMPONENT = Component(
-    ...,
-    listens="on_explicit_terminate",   # default = mount.value; existing
-                                        # mount-only components migrate transparently.
-    emits=("iter9_artifact_check_passed",),  # self-doc of custom events.
-)
-```
-
-The `mount` field is still required for policy validation. Pick the Mount
-enum that conceptually owns the event (e.g. `Mount.STOP` for an
-`on_explicit_terminate` subscriber). The dispatcher buckets by `listens`.
-
-### `ctx.chat()` / `ctx.emit()` / `ctx.emit_upstream()` (Phase C)
-
-`ComponentContext` inherits from `EventContext`:
-
-| method                                | semantics                                                                                          |
-|---------------------------------------|----------------------------------------------------------------------------------------------------|
-| `ctx.chat(messages, *, max_tokens=8192, temperature=0.0, system_override=None, tools=None)` | Sub-LLM call bound to the locked SUT model via `agent.llm.chat` (NOT the SDK ModelProvider). No `model=` kwarg. |
-| `ctx.emit(custom_event_name, **fields)` | Synchronously fire a Tier-2/3 custom event. Depth cap = 10. Fields dropped; use `ctx.shared` / `ctx.upstream`. |
-| `ctx.emit_upstream(key, value)`       | `ctx.upstream[key] = value` sugar.                                                                  |
-| `ctx.fetch` / `ctx.read_file`         | None-wired in toolathlon v1.                                                                        |
-
-Declare `capabilities=(Capability.LLM_CALL,)` for components that use `ctx.chat()`.
-
-### Custom events (Tier 2/3)
+## Custom events (Tier 2/3)
 
 ```
 iter<N>_<slug>_<event>        e.g. iter9_workspace_artifact_present
 on_<thing>                    failure-mode style
 ```
 
-Always declare `emits=(...)` on the publisher; grep
-`agent_toolathlon/components/*.py` for taken names. To admit non-ALLOW
-decisions on a custom event, add a string-key entry to
-`ALLOWED[ComponentClass.X]` in `agent_toolathlon/component_runtime/policy.py`.
-
-### Event-based patterns
-
-| pattern                                              | class           | listens                    | decision                                                  |
-|------------------------------------------------------|-----------------|----------------------------|-----------------------------------------------------------|
-| artifact gate before termination (workspace file check) | reactive_guard  | `on_explicit_terminate`    | block (refuses termination; agent loop continues)         |
-| length-recovery via sub-LLM with bigger budget        | reactive_guard  | `on_length_truncation`     | inject_context ("answer was truncated; expand and retry") |
-| publish task progress for downstream observer        | mechanism_layer | (A `listens="post_llm_response_raw"`, emits `iter<N>_<slug>_progress`) → (B `listens="iter<N>_<slug>_progress"`) | allow / inject_context |
+Always declare `emits=(...)` on the publisher. Subscribers declare `listens="iter<N>_<slug>_<event>"`. To admit non-`allow` decisions on a custom event, add a string-key entry to `ALLOWED[ComponentClass.X]` in `agent_toolathlon/component_runtime/policy.py`. Grep `agent_toolathlon/components/*.py` for `emits=` to find taken names.
 
 ## What NOT to write
 
 - Components that memorise train-set answers (encode "if task instruction contains 'Alita', return paper_id=2505.20286").
 - Components that try to compute the final answer deterministically without calling the LLM (defeats the SUT measurement).
 - Components that touch `toolathlon_runner.py`, `Toolathlon-src/`, or `agent_toolathlon/component_runtime/`.
-- Components that need POST_LLM_RESPONSE or DEFER — load-time rejected in v2 (v2.5 / v3).
-- Components that fire on EVERY task (priority=0 with always-True matcher) — that's effectively a prompt rewrite, not a component. Use a matcher that anchors on a stable structural predicate.
+- Components that need DEFER, or the 5 SDK-internal events (`pre_llm_request` / `pre_tool_arg_validation` / `post_tool_result_raw` / `on_tool_error` / `on_no_tool_call_emitted`) — declared but not emitted in v1.
+- Components that fire on EVERY task (`matcher=None`, priority=0) — that's effectively a prompt rewrite, not a component.
