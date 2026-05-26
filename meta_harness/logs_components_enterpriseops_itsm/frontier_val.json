@@ -1,0 +1,160 @@
+{
+  "per_task": {
+    "task_20260114_174427_042_99ba2325_7915481a": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251223_064316_340_01395ded_9c6f3e01": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.75
+    },
+    "task_20251221_222834_884_97d7df7d_c088062a": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.6666666666666666
+    },
+    "task_20251218_183102_136_391f1eff_ac9a6986": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.0
+    },
+    "task_20251218_171924_336_ad5a67e3_af252cf6": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.6666666666666666
+    },
+    "task_20251210_205620_593_391f1eff_ad65c160": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.5
+    },
+    "task_20251223_044459_066_97d7df7d_6de880ec": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.6666666666666666
+    },
+    "task_20260112_194743_238_a8eea1c0_a4b1468a": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.8333333333333334
+    },
+    "task_20260114_085016_654_e6427839_ca9119ec": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.6666666666666666
+    },
+    "task_20251223_224508_138_97d7df7d_b4505336": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.5
+    },
+    "task_20260113_182216_716_a8eea1c0_7a0619e9": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260113_125933_225_accab84d_d7ec710e": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260117_000130_134_2aa6b0ad_a20f3a61": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.3333333333333333
+    },
+    "task_20251221_045452_579_99ba2325_0e601eac": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.6
+    },
+    "task_20251218_155314_617_c5ca08eb_3ce3c52f": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251219_081545_939_99ba2325_887f5580": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.6666666666666666
+    },
+    "task_20251218_183819_272_99ba2325_dd71c332": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251212_172511_458_e6427839_47076c15": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.5
+    },
+    "task_20260114_173716_566_46ca2862_301e0b47": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251222_140957_029_c5ca08eb_3c4271f0": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.6666666666666666
+    },
+    "task_20260112_181636_272_c4ad7a70_c9cdfa29": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.5
+    },
+    "task_20251217_211242_026_391f1eff_27934d6b": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260114_181932_082_99ba2325_92ddef90": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.4
+    },
+    "task_20251222_084449_326_66392a82_cadddb04": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.5
+    },
+    "task_20251218_104259_233_66392a82_74b17170": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251222_133355_087_30600918_e9215c57": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.75
+    },
+    "task_20251212_184405_886_e6427839_6413728a": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.3333333333333333
+    },
+    "task_20260115_172636_260_fa1836dc_7a703e50": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.5
+    },
+    "task_20260116_091935_817_d4a463c3_3f20bdca": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251218_082708_201_99ba2325_51726f9c": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    }
+  },
+  "frontier_score": {
+    "correct": 10,
+    "total": 30,
+    "acc": 0.3333
+  },
+  "updated_at": "2026-05-26T05:32:41.273002+00:00"
+}

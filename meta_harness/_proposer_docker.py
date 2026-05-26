@@ -114,16 +114,18 @@ def _sopbench_mounts(domain: str) -> list[tuple[str, str]]:
     ]
 
 
-# enterpriseops is per-domain too — same structure as sopbench, additionally
-# needs RO visibility into our wrapper agent + the upstream eval framework so
-# the proposer can read agent code + react.py to ground its analyses.
+# enterpriseops is per-domain too. Post-refactor layout: the agent lives at
+# `agent/enterpriseops/<v_N>/` (a directory snapshot is the frontier). The
+# outer loop cloned the candidate dir before the proposer launches; the
+# proposer writes inside it. We mount the full `agent/enterpriseops/` tree
+# rw so the candidate dir is writable + the proposer can also read v0 +
+# the current sibling-domain frontier for reference. Cross-dir isolation
+# is enforced by the SKILL.md rule "stay inside the candidate dir".
 def _enterpriseops_mounts(domain: str) -> list[tuple[str, str]]:
     return [
         (f"meta_harness/logs_components_enterpriseops_{domain}", "rw"),
-        (f"meta_harness/workflows/enterpriseops_{domain}.yaml", "rw"),
-        (f"agent/components_enterpriseops_{domain}", "rw"),
-        ("agent/component_runtime_enterpriseops", "ro"),
-        ("agent/enterpriseops_agent.py", "ro"),
+        ("agent/enterpriseops", "rw"),
+        ("agent/llm.py", "ro"),
         ("third_party/EnterpriseOps-Gym", "ro"),
         (f"meta_harness/enterpriseops_{domain}_train_task_ids.txt", "ro"),
         (f"meta_harness/enterpriseops_{domain}_test_task_ids.txt", "ro"),
