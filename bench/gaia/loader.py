@@ -38,7 +38,7 @@ def build_prompt(task: dict) -> str:
     if task.get("file_name"):
         return (
             f"{task['question']}\n\n"
-            f"[Note: this task references a file '{task['file_name']}' "
-            f"which is not provided in this baseline run.]"
+            f"[A file '{task['file_name']}' is attached. "
+            f"Use the file_read tool with file_name='{task['file_name']}' to read it.]"
         )
     return task["question"]

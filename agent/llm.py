@@ -255,8 +255,15 @@ def chat(
         if actual:
             _record_actual_token_usage(int(actual))
         content = choice.message.content or ""
+        # DeepSeek thinking mode emits `reasoning_content` separately and
+        # requires it to be round-tripped on subsequent turns (the upstream
+        # 400s with "The `reasoning_content` in the thinking mode must be
+        # passed back to the API" otherwise).
+        reasoning_content = getattr(choice.message, "reasoning_content", None) or ""
         tool_calls = _extract_tool_calls(choice.message)
         assistant_message: dict[str, Any] = {"role": "assistant", "content": content}
+        if reasoning_content:
+            assistant_message["reasoning_content"] = reasoning_content
         if tool_calls:
             assistant_message["tool_calls"] = [
                 {
@@ -272,6 +279,7 @@ def chat(
         return {
             "model": model,
             "content": content,
+            "reasoning_content": reasoning_content,
             "finish_reason": choice.finish_reason,
             "tool_calls": tool_calls,
             "assistant_message": assistant_message,
