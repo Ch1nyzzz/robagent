@@ -10,7 +10,6 @@ The LLM's raw response has been extracted into `ctx.answer` (default: `raw_respo
 |-------------------|-----------|-------------------------|
 | `mechanism_layer` | yes       | rewrite, block          |
 | `reactive_guard`  | yes       | rewrite, block          |
-| `channel`         | no        | (no content to inject)  |
 | `induced_rule`    | no        | (no advisory slot here) |
 
 ## Decision semantics
@@ -39,7 +38,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="final_answer_extractor",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.PRE_ANSWER_EMIT,
+    listens="pre_answer_emit",
     matcher=_matches,
     handler=_handler,
     trust=Trust(
@@ -77,7 +76,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="refusal_to_blocked",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.PRE_ANSWER_EMIT,
+    listens="pre_answer_emit",
     matcher=_matches,
     handler=_handler,
     trust=Trust(

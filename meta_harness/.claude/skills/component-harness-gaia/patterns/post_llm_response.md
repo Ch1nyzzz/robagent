@@ -10,7 +10,6 @@ The LLM has returned its raw content; you want to **observe or rewrite it** befo
 |-------------------|-----------|--------------------------------------|
 | `mechanism_layer` | yes       | rewrite, block, inject_context       |
 | `reactive_guard`  | yes       | rewrite, block, inject_context       |
-| `channel`         | no        | (no task-structure trigger post-LLM) |
 | `induced_rule`    | no        | (no advisory slot here)              |
 
 ## Decision semantics
@@ -50,7 +49,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="finish_reason_length_recovery",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.POST_LLM_RESPONSE,
+    listens="post_llm_response",
     matcher=_matches,
     handler=_handler,
     trust=Trust(
@@ -84,7 +83,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="strip_thinking_blocks",
     cls=ComponentClass.MECHANISM_LAYER,
-    mount=Mount.POST_LLM_RESPONSE,
+    listens="post_llm_response",
     matcher=_matches,
     handler=_handler,
     trust=Trust(

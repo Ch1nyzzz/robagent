@@ -1,68 +1,67 @@
-# Pattern: mount = `pre_prompt_build`
+# Pattern: event = `pre_prompt_build` (alias `pre_context_build`)
 
-## When to choose this mount
+## When to choose this event
 
-You need to **modify the prompt sent to the LLM** before the LLM call — typically because the LLM cannot reach external content the task points at (a file the user attached via `extras.file_name`, a URL named in the prompt, a documented KB resource).
+You need to **modify the initial task prompt** before the FC loop begins — typically to add a framework reminder ("output in FINAL ANSWER: format"), or to advisory-inject a policy reading the model would benefit from seeing upfront.
 
-## Which classes admit this mount
+**Not for** giving the agent content it can't otherwise reach — that's a capability gap. The baseline FC loop already has `file_read` / `url_fetch` / `web_search` / `python_exec`. If the agent can call those, don't inject the content here.
+
+## Which classes admit this event
 
 | class             | admitted? | decisions permitted          |
 |-------------------|-----------|------------------------------|
 | `mechanism_layer` | yes       | inject_context, rewrite, block |
 | `reactive_guard`  | no        | (no failure observed yet)    |
-| `channel`         | yes       | inject_context               |
 | `induced_rule`    | yes       | inject_context (advisory)    |
 
 ## Decision semantics
 
-- `inject_context(text)` — appended to `ctx.system_prompt` (then prepended to the LLM messages as the system content).
-- `rewrite(new_prompt)` — replaces `ctx.prompt` (the user content) wholesale. MECHANISM_LAYER only.
-- `block(reason)` — marks `ctx.blocked=True`; the task returns `answer=None` with the reason logged. Use for `BLOCKED{reason=model_capability_gap}` cases (e.g., a vision question on a text-only model).
+- `inject_context(text)` — appended to `ctx.system_prompt`, which becomes the system message in the first FC turn.
+- `rewrite(new_prompt)` — replaces `ctx.prompt` (the user content) wholesale. `mechanism_layer` only.
+- `block(reason)` — marks `ctx.blocked=True`; the task returns `answer=None` with the reason logged. Use for `BLOCKED{reason=model_capability_gap}` (e.g., the task is fundamentally outside the agent's tool reach AND adding a tool isn't on the table).
 
-## Worked example: file_reader channel
+## Worked example: framework format reminder
 
 ```python
 def _matches(ctx: ComponentContext) -> bool:
-    fname = (ctx.extras or {}).get("file_name") or ""
-    if not fname:
-        return False
-    # Channel scope: text-readable files only. Vision / binary →
-    # a separate vision_blocked component handles those.
-    return fname.lower().endswith((".txt", ".md", ".csv", ".json", ".py"))
+    # Fire on every task — this is a framework-invariant injection,
+    # not a task-specific rule.
+    return True
 
 
 def _handler(ctx: ComponentContext) -> Decision:
-    fname = ctx.extras["file_name"]
-    try:
-        with open(fname, "r", encoding="utf-8") as f:
-            content = f.read()
-    except OSError as e:
-        # File missing / unreadable: pass through, no inject, no block.
-        return Decision.allow()
     return Decision.inject_context(
-        f"<attached_file path={fname!r}>\n{content}\n</attached_file>"
+        "Reminder: end your response with one line\n"
+        "  FINAL ANSWER: <answer>\n"
+        "where <answer> is exactly the value the question asks for "
+        "(numbers as digits, no units; strings with no prefix; "
+        "lists as comma-separated values)."
     )
 
 
 COMPONENT = Component(
-    name="file_reader_channel",
-    cls=ComponentClass.CHANNEL,
-    mount=Mount.PRE_PROMPT_BUILD,
+    name="final_answer_format_reminder",
+    cls=ComponentClass.MECHANISM_LAYER,
+    listens="pre_prompt_build",
     matcher=_matches,
     handler=_handler,
     trust=Trust(
         evidence_anchor=(
-            "extras.file_name is a system field populated by bench/gaia/loader.py "
-            "from the GAIA dataset row; reading it is a deterministic OS call."
+            "GAIA scorer.question_scorer normalises numeric/string answers "
+            "against a specific shape; the FINAL ANSWER: line convention "
+            "is documented in agent/base.py::SYSTEM_PROMPT and is independent "
+            "of any individual evidence trace."
         ),
         blast_radius="local",
-        rollback_when="extras.file_name field renamed or 0 hits across 30 train tasks.",
-        fallback="No file_name set → matcher False → prompt unchanged.",
+        rollback_when="train-30 accuracy drops vs frontier on tasks that "
+                      "previously emitted a correct FINAL ANSWER without the reminder.",
+        fallback="The base agent.base.SYSTEM_PROMPT already mentions FINAL ANSWER; "
+                 "the reminder is redundant if the model never strays.",
     ),
 )
 ```
 
 ## Common mistakes
 
-- Class = `mechanism_layer` with `decision = rewrite` based on a regex over the prompt text ("if the question mentions a date, rewrite to add 'use current date'"). The matcher is interpretation-layer; the right class is `induced_rule` advisory inject_context, or no component at all.
-- Class = `channel` with `decision = rewrite`. The matrix admits only `inject_context` for channel — rewriting the prompt wholesale is mechanism_layer's job.
+- **Treating a capability gap as a hook problem.** "The agent should know about the attached file" — write a tool, not a hook. If the file format is unsupported by `file_read`, extend `agent/tools/file_read.py` (separate workflow, not this skill).
+- Class = `mechanism_layer` with `decision = rewrite` based on a regex over the prompt text ("if the question mentions a date, rewrite to add 'use current date'"). The matcher is interpretation-layer; the right class is `induced_rule` advisory `inject_context`, or no component at all.
