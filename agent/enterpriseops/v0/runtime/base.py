@@ -1,17 +1,15 @@
 """EnterpriseOps dispatcher: runtime side of the EnterpriseOpsAgent component bridge.
 
-Unlike GAIA's `agent/component_runtime/base.py` which provides a complete
-`run_task(...)` entry point, this runtime exposes a `Dispatcher` that the
-EnterpriseOpsAgent calls at each Mount in its function-calling loop. The
-agent owns the loop (wrapping upstream `orchestrators/react.py`); the
-dispatcher owns the policy + mutation logic.
+Unlike GAIA's component runtime which provides a complete `run_task(...)`
+entry point, this runtime exposes a `Dispatcher` that the agent calls at
+each lifecycle event in its function-calling loop. The agent owns the loop
+(wrapping upstream `orchestrators/react.py`); the dispatcher owns the
+policy + mutation logic.
 
-Workflow source on disk:
-  meta_harness/workflows/enterpriseops_<domain>.yaml  (override with
-  `ENTERPRISEOPS_COMPONENT_WORKFLOW` env var)
-
-Active component set = workflow's `active_nodes()`. The outer loop keeps
-the YAML pinned to the accepted frontier; the runtime trusts it.
+Component activation: every `.py` file inside the sibling `components_<domain>/`
+directory is active. There is no workflow YAML or frontier snapshot — the
+outer loop maintains frontier state at the directory level (symlink to the
+current v_N), and each iter forks the entire directory.
 """
 from __future__ import annotations
 
@@ -25,35 +23,22 @@ from typing import Optional
 from agent.llm import chat as _bench_chat
 from meta_harness.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
 
-from .policy import ComponentPolicyError, validate_decision
-from .registry import COMPONENTS_DIR_DEFAULT, load_components_from_dir
+from .policy import validate_decision
+from .registry import load_components_from_dir
 from .types import (
     Component,
     ComponentContext,
     DecisionKind,
 )
-from .workflow import Workflow
 
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-
-_WORKFLOW_ENV = "ENTERPRISEOPS_COMPONENT_WORKFLOW"
-_NAMES_ENV    = "ENTERPRISEOPS_COMPONENT_NAMES"
 _RUN_TAG_ENV  = "ENTERPRISEOPS_COMPONENT_RUN_TAG"
-_DIR_ENV      = "ENTERPRISEOPS_COMPONENT_DIR"
 _STATE_ENV    = "ENTERPRISEOPS_COMPONENT_STATE_DIR"
 
 
-def resolve_workflow_path(default: Optional[Path] = None) -> Optional[Path]:
-    raw = os.environ.get(_WORKFLOW_ENV)
-    if raw:
-        return Path(raw)
-    return default
-
-
-# Process-level cache: one Dispatcher per workflow+components selection.
+# Process-level cache: one Dispatcher per components directory.
 _CACHE_LOCK = Lock()
-_CACHE: dict[tuple[str, str], "Dispatcher"] = {}
+_CACHE: dict[str, "Dispatcher"] = {}
 
 
 def _make_chat_impl():
@@ -139,29 +124,23 @@ def _apply_decision_enterpriseops(ctx: ComponentContext, decision,
 
 def _validate_for_core(comp: Component, event_name: str,
                        kind: DecisionKind) -> None:
-    """Adapter: core dispatcher passes event_name string, policy accepts
-    Mount enum OR string (see policy._normalise_key)."""
     validate_decision(comp.cls, event_name, kind)
 
 
 class Dispatcher:
-    """Single-workflow dispatcher used by EnterpriseOpsAgent.
+    """Dispatcher used by EnterpriseOpsAgent.
 
-    Phase B/C migration: wraps `core.Dispatcher` internally while keeping
-    the existing `dispatch(mount, ctx)` surface. Adds `emit(event_name,
-    ctx)` (Phase D) and `wire_capabilities(ctx)` (Phase C) for the new
-    event-style integrations.
+    Wraps `core.Dispatcher`; adds `emit(event_name, ctx)` and
+    `wire_capabilities(ctx)` for the event-style integrations.
     """
 
     def __init__(
         self,
         *,
-        workflow: Workflow,
         components: list[Component],
         run_tag: str = "default",
         state_dir: Optional[Path] = None,
     ) -> None:
-        self.workflow = workflow
         self.run_tag = run_tag
         self._state_dir = state_dir
         self._core = _CoreDispatcher(
@@ -170,8 +149,6 @@ class Dispatcher:
             apply_decision=_apply_decision_enterpriseops,
             trace_sink=self._trace_sink,
         )
-
-    # --- trace sink -------------------------------------------------------
 
     def _trace_dir(self) -> Path:
         if self._state_dir is not None:
@@ -198,79 +175,40 @@ class Dispatcher:
         except Exception:
             pass
 
-    # --- dispatch ---------------------------------------------------------
-
     def emit(self, event_name: str, ctx: ComponentContext) -> None:
-        """Fire `event_name` through the unified core dispatcher.
-        Per-event side-effects (skip_current_tool reset before
-        pre_tool_use, etc.) are handled in `_apply_decision_enterpriseops`
-        based on `ctx.event`."""
         if event_name == "pre_tool_use":
             ctx.shared.pop("skip_current_tool", None)
         self._core.emit(event_name, ctx)
 
     def wire_capabilities(self, ctx: ComponentContext) -> None:
-        """Phase C: attach per-task capability implementations.
-        ctx.chat → agent.llm.chat (locked SUT model);
-        ctx.emit → re-enter this dispatcher (with depth cap).
-        ctx.fetch / ctx.read_file intentionally None in v1."""
         ctx._impl_chat = _make_chat_impl()
         ctx._impl_emit = lambda name, fields: self._core.emit(name, ctx)
 
 
-def _coerce_active_names(workflow: Workflow) -> set[str]:
-    """If ENTERPRISEOPS_COMPONENT_NAMES is set, sanity-check against workflow.
-
-    Mirrors the safety check that the outer loop pinned the YAML before
-    launching the eval.
-    """
-    raw = os.environ.get(_NAMES_ENV, "").strip()
-    if not raw:
-        return set(workflow.active_nodes())
-    declared = {n for n in raw.split(",") if n}
-    yaml_active = set(workflow.active_nodes())
-    if declared != yaml_active:
-        raise SystemExit(
-            f"{_NAMES_ENV} {sorted(declared)} != workflow active "
-            f"{sorted(yaml_active)}; the outer loop must pin the workflow yaml."
-        )
-    return declared
-
-
 def build_dispatcher(
     *,
-    workflow_path: Optional[Path] = None,
-    comp_dir: Optional[Path] = None,
+    comp_dir: Path,
     run_tag: Optional[str] = None,
     state_dir: Optional[Path] = None,
 ) -> Dispatcher:
-    """Return a cached Dispatcher for the (workflow, components_dir) pair.
+    """Return a cached Dispatcher for `comp_dir`.
 
-    Reading components from disk and validating each at load time is mildly
-    expensive; the cache makes parallel-worker eval re-use the same parsed
+    Every `.py` file in `comp_dir` (excluding those starting with `_`) is
+    loaded. The cache lets parallel-worker eval re-use the same parsed
     Component objects.
     """
-    wf_path = workflow_path or resolve_workflow_path()
-    cd = Path(comp_dir or os.environ.get(_DIR_ENV) or COMPONENTS_DIR_DEFAULT)
+    cd = Path(comp_dir)
     tag = run_tag or os.environ.get(_RUN_TAG_ENV, "default")
 
-    key = (str(wf_path) if wf_path else "", str(cd))
+    key = str(cd.resolve())
     with _CACHE_LOCK:
         hit = _CACHE.get(key)
         if hit is not None:
             return hit
 
-        if wf_path and Path(wf_path).exists():
-            wf = Workflow.from_yaml(wf_path)
-        else:
-            wf = Workflow()
-        _coerce_active_names(wf)  # raises SystemExit on mismatch
-
-        active = list(wf.active_nodes())
-        components = load_components_from_dir(cd, only=active) if active else []
+        components = load_components_from_dir(cd)
 
         disp = Dispatcher(
-            workflow=wf,
             components=components,
             run_tag=tag,
             state_dir=state_dir,

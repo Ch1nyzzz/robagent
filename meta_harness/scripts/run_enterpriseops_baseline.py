@@ -1,20 +1,22 @@
-"""Run the EnterpriseOpsAgent (component-enabled wrapper) on one domain.
+"""Run the EnterpriseOps wrapper agent on one domain.
 
-Canonical entry for the evolution pipeline. Mirrors
-`run_sopbench_baseline.py`: per-task it invokes our wrapper agent against
-the upstream MCP-server + verifier pipeline, then writes:
+Canonical entry for the evolution pipeline. Per-task it invokes our wrapper
+agent against the upstream MCP-server + verifier pipeline, then writes:
 
   meta_harness/logs_components_enterpriseops_<domain>/
       <agent_name>__<subset>__results.json    # task-by-task + summary
       frontier_val.json                       # per-task best score (frontier)
       evolution_summary.jsonl                 # one line per iteration
 
+Frontier-as-directory: the agent lives at `agent/enterpriseops/<v_dir>/agent.py`,
+the components live at `agent/enterpriseops/<v_dir>/components_<domain>/`.
+Caller passes `--agent-dir` pointing at a v_N. There is no workflow YAML.
+
 Important — upstream venv
 -------------------------
 This script imports upstream `third_party/EnterpriseOps-Gym` Python modules
 (LangChain, langchain_deepseek, datasets, …) which live in the upstream's
-uv-managed venv, NOT in the host Python. Invoke this script through that
-venv's interpreter:
+uv-managed venv, NOT in the host Python. Invoke through that interpreter:
 
     UPSTREAM_PY=/data/home/yuhan/robagent/third_party/EnterpriseOps-Gym/.venv/bin/python
     bash -c "set -a && source /data/home/yuhan/robagent/.env && set +a && \\
@@ -23,41 +25,27 @@ venv's interpreter:
 
 If `langchain_deepseek` import fails: `cd third_party/EnterpriseOps-Gym && uv sync --extra all`.
 
-Usage (baseline)
-----------------
-    UPSTREAM_PY=/data/home/yuhan/robagent/third_party/EnterpriseOps-Gym/.venv/bin/python
-    bash -c 'set -a && source /data/home/yuhan/robagent/.env && set +a && \\
-      PYTHONPATH=/data/home/yuhan/robagent:/data/home/yuhan/robagent/third_party/EnterpriseOps-Gym \\
-      "$UPSTREAM_PY" meta_harness/scripts/run_enterpriseops_baseline.py \\
+Usage
+-----
+    "$UPSTREAM_PY" meta_harness/scripts/run_enterpriseops_baseline.py \\
         --domain calendar --agent-name v0 --iteration 0 \\
+        --agent-dir agent/enterpriseops/v0 \\
         --train-split meta_harness/enterpriseops_calendar_train_task_ids.txt \\
-        --test-split  meta_harness/enterpriseops_calendar_test_task_ids.txt \\
-        --provider deepseek --concurrency 5'
-
-Usage (after a proposer iteration)
-----------------------------------
-    bash -c 'set -a && source .env && set +a && \\
-      ENTERPRISEOPS_COMPONENT_WORKFLOW=meta_harness/workflows/enterpriseops_calendar.yaml \\
-      ENTERPRISEOPS_COMPONENT_DIR=agent/components_enterpriseops_calendar \\
-      python meta_harness/scripts/run_enterpriseops_baseline.py \\
-        --domain calendar --agent-name mh_iter1_acl_email_normalizer \\
-        --iteration 1 --workflow meta_harness/workflows/enterpriseops_calendar.yaml \\
-        --components-dir agent/components_enterpriseops_calendar \\
-        --train-split meta_harness/enterpriseops_calendar_train_task_ids.txt \\
-        --subsets train --plugin-json @meta_harness/logs_components_enterpriseops_calendar/pending_eval.json'
+        --subsets train --provider deepseek --concurrency 5
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import datetime as dt
+import importlib.util
 import json
 import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -69,7 +57,25 @@ if str(UPSTREAM) not in sys.path:
 
 from benchmark.models import LLMConfig  # noqa: E402
 
-from agent.enterpriseops_agent import run_task  # noqa: E402
+
+def _load_run_task(agent_dir: Path) -> Callable:
+    """Import the `run_task` callable from `<agent_dir>/agent.py`.
+
+    The agent dir is expected to be `agent/enterpriseops/<v_N>/` containing
+    `agent.py`, a `runtime/` package, and per-domain `components_<domain>/`
+    directories — a regular Python package on ROOT-relative sys.path, so a
+    plain `import_module` works and relative imports inside `agent.py`
+    (`from .runtime import ...`) resolve against the matching v_N tree.
+    """
+    agent_dir = agent_dir.resolve()
+    if not (agent_dir / "agent.py").exists():
+        raise SystemExit(f"agent.py not found in {agent_dir}")
+    rel = agent_dir.relative_to(ROOT)
+    mod_name = ".".join(rel.parts) + ".agent"
+    mod = importlib.import_module(mod_name)
+    if not hasattr(mod, "run_task"):
+        raise SystemExit(f"{agent_dir}/agent.py does not export run_task")
+    return mod.run_task
 
 
 # --------------------------------------------------------------------------- #
@@ -227,8 +233,8 @@ async def _run_one(
     task_cfg: dict[str, Any],
     domain: str,
     llm_config: LLMConfig,
-    workflow_path: Optional[Path],
-    components_dir: Optional[Path],
+    run_task: Callable,
+    components_dir: Path,
     run_tag: str,
     traces_dir: Path,
 ) -> dict[str, Any]:
@@ -240,7 +246,6 @@ async def _run_one(
                 llm_config,
                 domain=domain,
                 task_id=task_id,
-                workflow_path=workflow_path,
                 components_dir=components_dir,
                 run_tag=run_tag,
             )
@@ -292,8 +297,8 @@ async def run_subset(
     task_configs: dict[str, dict[str, Any]],
     agent_name: str,
     llm_config: LLMConfig,
-    workflow_path: Optional[Path],
-    components_dir: Optional[Path],
+    run_task: Callable,
+    components_dir: Path,
     concurrency: int,
     logs_dir: Path,
 ) -> dict[str, Any]:
@@ -312,7 +317,7 @@ async def run_subset(
             task_cfg=task_configs[tid],
             domain=domain,
             llm_config=llm_config,
-            workflow_path=workflow_path,
+            run_task=run_task,
             components_dir=components_dir,
             run_tag=run_tag,
             traces_dir=traces_dir,
@@ -332,8 +337,7 @@ async def run_subset(
         "results": task_results,
         "wall_seconds": round(elapsed, 1),
         "ts": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "workflow_path": str(workflow_path) if workflow_path else None,
-        "components_dir": str(components_dir) if components_dir else None,
+        "components_dir": str(components_dir),
         "llm": f"{llm_config.llm_provider}/{llm_config.llm_model}",
     }
     out_path = logs_dir / f"{agent_name}__{subset_name}__results.json"
@@ -378,11 +382,9 @@ def main() -> None:
                    help="txt file: test task_ids; required for the test subset")
     p.add_argument("--subsets", default="train,test",
                    help="comma-separated: train, test, or both")
-    p.add_argument("--workflow", default=None,
-                   help="path to enterpriseops_<domain>.yaml; defaults to empty (v0).")
-    p.add_argument("--components-dir", default=None,
-                   help="path to components_enterpriseops_<domain>/; "
-                        "defaults to agent/components_enterpriseops_<domain>")
+    p.add_argument("--agent-dir", required=True,
+                   help="path to agent/enterpriseops/<v_N>/ — must contain "
+                        "agent.py, runtime/, components_<domain>/")
     p.add_argument("--concurrency", type=int, default=5)
     p.add_argument("--provider", default="deepseek",
                    choices=sorted(PROVIDER_PRESETS.keys()))
@@ -399,11 +401,9 @@ def main() -> None:
     logs_dir = logs_dir_for(args.domain)
     llm_config = build_llm_config(args.provider, args.llm_config)
 
-    workflow_path = Path(args.workflow).resolve() if args.workflow else None
-    components_dir = (
-        Path(args.components_dir).resolve() if args.components_dir
-        else ROOT / "agent" / f"components_enterpriseops_{args.domain}"
-    )
+    agent_dir = Path(args.agent_dir).resolve()
+    run_task = _load_run_task(agent_dir)
+    components_dir = agent_dir / f"components_{args.domain}"
 
     subsets_to_run = {s.strip() for s in args.subsets.split(",") if s.strip()}
 
@@ -424,7 +424,7 @@ def main() -> None:
             task_configs=task_configs,
             agent_name=args.agent_name,
             llm_config=llm_config,
-            workflow_path=workflow_path,
+            run_task=run_task,
             components_dir=components_dir,
             concurrency=args.concurrency,
             logs_dir=logs_dir,
@@ -437,7 +437,7 @@ def main() -> None:
             task_configs=task_configs,
             agent_name=args.agent_name,
             llm_config=llm_config,
-            workflow_path=workflow_path,
+            run_task=run_task,
             components_dir=components_dir,
             concurrency=args.concurrency,
             logs_dir=logs_dir,

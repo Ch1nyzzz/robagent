@@ -1,32 +1,29 @@
-"""Outer evolution loop for component-harness-enterpriseops.
+"""Outer evolution loop for enterpriseops (domain = calendar | itsm).
 
-Per-iteration flow for ONE domain (calendar | itsm):
-  1. Load current frontier workflow (meta_harness/workflows/enterpriseops_<domain>.yaml).
-  2. Run proposer (Claude Code subagent w/ component-harness-enterpriseops skill).
-     The proposer writes a single component file to
-     agent/components_enterpriseops_<domain>/ and a `pending_eval.json`
-     describing the workflow_patch + component metadata.
-  3. Apply the patch → next_workflow; write the yaml.
-  4. Run candidate on the train subset of the domain via run_enterpriseops_baseline.py
-     (with --workflow / --components-dir CLI args pinned; train ids come from
-     a per-domain txt file).
-  5. Champion-gate: candidate.train_score.n_correct ≥ last_accepted.n_correct?
-       accept → snapshot frontier_workflow.json + commit
-       reject → rollback workflow yaml; delete added file or restore .bak
-  6. Update last evolution_summary.jsonl row with accepted bool + workflow_after.
+Directory-as-frontier model
+---------------------------
+The agent + its components live entirely under one directory:
 
-State per domain lives under
-`meta_harness/logs_components_enterpriseops_<domain>/`.
+    agent/enterpriseops/
+        v0/                       (frozen control, never modified after init)
+            agent.py
+            runtime/              (dispatcher, types, policy)
+            components_calendar/
+            components_itsm/
+        v_calendar_1/             (one per accepted calendar iter)
+        v_itsm_1/                 (one per accepted itsm iter)
+        current_calendar → v0 | v_calendar_N   (symlink to latest accepted)
+        current_itsm     → v0 | v_itsm_N
 
-Ported from `meta_harness_components_sopbench.py` (Phase 0 of the
-event-based runtime migration). Differences from the sopbench loop:
-  - Baseline subprocess uses the upstream EnterpriseOps-Gym uv-managed
-    venv interpreter and sets PYTHONPATH to include the upstream tree.
-  - Subprocess args are CLI (`--workflow`, `--components-dir`,
-    `--train-split`) rather than env vars (`SOPBENCH_COMPONENT_*`).
-  - Iteration `n_correct` is read from the evolution_summary.jsonl row
-    the baseline script appends (same shape as sopbench:
-    `train_score.n_correct`).
+Per-iteration flow for ONE domain:
+  1. Resolve current frontier dir = readlink(current_<domain>).
+  2. Pick next iteration N; clone via `cp -r current_dir agent/enterpriseops/v_<domain>_<N>`.
+  3. Run proposer; it edits anything inside the new dir (agent.py, runtime/,
+     components_<domain>/, new tools/, …). Outputs pending_eval.json.
+  4. Run candidate on train via run_enterpriseops_baseline.py --agent-dir <new_dir>.
+  5. Champion-gate: candidate train n_correct ≥ last accepted n_correct?
+       accept → repoint symlink, snapshot, commit
+       reject → rmtree new_dir; symlink unchanged
 """
 from __future__ import annotations
 
@@ -34,6 +31,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -46,15 +44,6 @@ sys.path.insert(0, str(ROOT))
 
 import claude_wrapper  # noqa: E402
 
-from agent.component_runtime_enterpriseops import (  # noqa: E402
-    FrontierSnapshot,
-    Patch,
-    PatchOp,
-    Workflow,
-    apply_patch,
-)
-
-WORKFLOWS_DIR  = THIS_DIR / "workflows"
 SKILLS_PARENT  = THIS_DIR / ".claude" / "skills"
 DEFAULT_SKILL  = "component-harness-enterpriseops"
 
@@ -66,10 +55,8 @@ UPSTREAM_PY = Path(os.environ.get(
     str(UPSTREAM_DIR / ".venv" / "bin" / "python"),
 ))
 
-
-def _components_dir_for(domain: str) -> Path:
-    """Per-domain components dir so parallel domain runs don't share files."""
-    return ROOT / "agent" / f"components_enterpriseops_{domain}"
+# Agent dir layout: agent/enterpriseops/{v0, v_<domain>_<N>, current_<domain>}
+AGENT_PARENT = ROOT / "agent" / "enterpriseops"
 
 
 def _train_split_for(domain: str) -> Path:
@@ -80,15 +67,24 @@ def _test_split_for(domain: str) -> Path:
     return THIS_DIR / f"enterpriseops_{domain}_test_task_ids.txt"
 
 
+def _current_symlink(domain: str) -> Path:
+    return AGENT_PARENT / f"current_{domain}"
+
+
+def _v_dir(domain: str, n: int) -> Path:
+    """Path to v_<domain>_<N>. N=0 collapses to the shared v0/."""
+    if n == 0:
+        return AGENT_PARENT / "v0"
+    return AGENT_PARENT / f"v_{domain}_{n}"
+
+
 PROPOSER_MODEL = os.environ.get("MH_PROPOSER_MODEL", "opus")
 PROPOSER_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write", "Bash"]
 
 # Set by main() per domain:
 LOGS: Path
-WORKFLOW_YAML: Path
 PENDING_EVAL: Path
 FRONTIER_VAL: Path
-FRONTIER_WORKFLOW: Path
 EVOLUTION_SUMMARY: Path
 DOMAIN: str
 TRAIN_PARALLEL: int
@@ -101,13 +97,8 @@ def _logs_for(domain: str) -> Path:
     return d
 
 
-def _workflow_yaml_for(domain: str) -> Path:
-    p = WORKFLOWS_DIR / f"enterpriseops_{domain}.yaml"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
-
-
 def _current_iteration() -> int:
+    """Next iter number. Reads max iteration in evolution_summary.jsonl, +1."""
     if not EVOLUTION_SUMMARY.exists():
         return 1
     last = 0
@@ -120,25 +111,33 @@ def _current_iteration() -> int:
 
 
 # ----------------------------------------------------------------------------
-# Frontier workflow load / save.
+# Frontier directory load / save.
 # ----------------------------------------------------------------------------
 
 
-def _load_frontier_workflow() -> Workflow:
-    if not WORKFLOW_YAML.exists():
-        return Workflow()
-    return Workflow.from_yaml(WORKFLOW_YAML)
+def _resolve_frontier_dir(domain: str) -> Path:
+    """Return the absolute path the `current_<domain>` symlink points at.
+
+    If the symlink is missing (first run on a fresh checkout), point it at
+    v0 lazily.
+    """
+    link = _current_symlink(domain)
+    if not link.is_symlink() and not link.exists():
+        link.symlink_to("v0")
+    target = (link.parent / os.readlink(link)).resolve()
+    if not target.exists():
+        raise SystemExit(
+            f"current_{domain} symlink points at {target} which does not exist"
+        )
+    return target
 
 
-def _save_frontier_snapshot(wf: Workflow, iteration: int) -> None:
-    yaml_text = WORKFLOW_YAML.read_text() if WORKFLOW_YAML.exists() else ""
-    snap = FrontierSnapshot(
-        workflow_yaml_at_accept=yaml_text,
-        active_names=list(wf.active_nodes()),
-        accepted_at_iteration=iteration,
-        accepted_at=dt.datetime.now(dt.timezone.utc).isoformat(),
-    )
-    snap.to_json(FRONTIER_WORKFLOW)
+def _repoint_frontier(domain: str, new_dir: Path) -> None:
+    link = _current_symlink(domain)
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    # Store as relative symlink (target is sibling of the symlink).
+    link.symlink_to(new_dir.name)
 
 
 # ----------------------------------------------------------------------------
@@ -146,121 +145,113 @@ def _save_frontier_snapshot(wf: Workflow, iteration: int) -> None:
 # ----------------------------------------------------------------------------
 
 
-def _proposer_prompt(iteration: int, skill_name: str) -> str:
-    name_pattern = (
-        f"component_enterpriseops_{DOMAIN}_iter{iteration}_<slug>"
-    )
-    comp_dir = _components_dir_for(DOMAIN).relative_to(ROOT)
+def _proposer_prompt(iteration: int, skill_name: str, next_dir: Path,
+                     prev_dir: Path) -> str:
+    next_rel = next_dir.relative_to(ROOT)
+    prev_rel = prev_dir.relative_to(ROOT)
     train_split = _train_split_for(DOMAIN).relative_to(ROOT)
-    return f"""You are an EnterpriseOps component proposer. Follow the SKILL.md ({skill_name}).
+    return f"""You are an EnterpriseOps agent proposer. Follow the SKILL.md ({skill_name}).
 
 Iteration: {iteration}
 Domain: {DOMAIN}
 Working directory: {ROOT}
 
+Directory-as-frontier model
+---------------------------
+The previous frontier lives at:
+    {prev_rel}/
+
+A pristine copy of it has already been made at:
+    {next_rel}/
+
+This is YOUR working directory for this iteration. Anything you change inside
+{next_rel}/ is the candidate. If accepted, the symlink agent/enterpriseops/current_{DOMAIN}
+gets repointed to it; if rejected, the entire directory is deleted.
+
+You may edit ANY file in {next_rel}/:
+  - {next_rel}/agent.py            (capability: SYSTEM_PROMPT, tool registration,
+                                    orchestrator subclass, run_task body)
+  - {next_rel}/runtime/            (dispatcher/policy/types — usually leave alone)
+  - {next_rel}/components_{DOMAIN}/ (stabilization hooks: add/edit/delete .py files)
+
 State files (relative to working directory):
-  - Domain workflow YAML (frontier):  {WORKFLOW_YAML.relative_to(ROOT)}
-  - Frontier per-task best:           {FRONTIER_VAL.relative_to(ROOT)}
-  - Frontier snapshot:                {FRONTIER_WORKFLOW.relative_to(ROOT)}
-  - Prior iteration summary:          {EVOLUTION_SUMMARY.relative_to(ROOT)}
+  - Frontier per-task best:           meta_harness/logs_components_enterpriseops_{DOMAIN}/frontier_val.json
+  - Prior iteration summary:          meta_harness/logs_components_enterpriseops_{DOMAIN}/evolution_summary.jsonl
   - Output pending eval to:           {PENDING_EVAL.relative_to(ROOT)}
-  - EnterpriseOpsAgent (READ-ONLY):   agent/enterpriseops_agent.py
-  - Component runtime (READ-ONLY):    agent/component_runtime_enterpriseops/
-  - THIS DOMAIN's components dir:     {comp_dir}/  (READ-ONLY; modify by
-                                       reusing COMPONENT.name = replace_node)
   - Train task ids:                   {train_split}
   - Per-task baselines:               meta_harness/logs_components_enterpriseops_{DOMAIN}/v0__train__results.json
-                                       (per-task verifier scores from the v0 run)
-  - Component fire trace:             .component-state-enterpriseops/{DOMAIN}_iter<N-1>/fired.jsonl (absent on iter 1)
-
-IMPORTANT: other domains' components live in their own dirs
-(`components_enterpriseops_<other_domain>/`). Do NOT read them; isolation
-is enforced via per-domain dirs + the docker proposer mount whitelist.
-You only write to this domain's dir: `{comp_dir}/`.
+  - Component fire trace (per iter):  .component-state-enterpriseops/<run_tag>/fired.jsonl
 
 Steps:
-  1. Read workflows/enterpriseops_{DOMAIN}.yaml, frontier_workflow.json,
-     frontier_val.json, and the last few entries of evolution_summary.jsonl.
-  2. Pick 4-6 train task_ids where the current frontier scores 0 (look at
-     `per_task` in frontier_val.json). Read their stored per-task result
-     trace under logs_components_enterpriseops_{DOMAIN}/v0__train__traces/
-     to identify the failure mode (verifier check name, tool-call shape,
-     missing SQL action, etc.).
+  1. Read frontier_val.json's per_task block to find tasks the frontier scores 0 on.
+  2. Read the v0 per-task traces under meta_harness/logs_components_enterpriseops_{DOMAIN}/v0__train__traces/
+     to identify failure modes (verifier check name, tool-call shape, missing SQL action).
   3. Form ONE hypothesis tied to a mechanism present in >=3 of those failures.
-  4. Choose ONE patch op: add_node | replace_node | disable_node.
-       * add_node: create exactly one file at
-         {comp_dir}/{name_pattern}.py exporting `COMPONENT: Component`.
-       * replace_node: BEFORE editing, run
-           cp {comp_dir}/<existing>.py {comp_dir}/<existing>.py.bak_iter{iteration}
-         then overwrite (keep COMPONENT.name unchanged).
-       * disable_node: write no file; reference the existing component
-         name in the workflow_patch block.
-  5. Validate registration + trust:
+  4. Decide path:
+       capability path  → edit {next_rel}/agent.py
+                          (e.g. extend SYSTEM_PROMPT with an API cheatsheet,
+                          register a new tool, alter the orchestrator).
+       stabilization path → add/edit/delete files under
+                          {next_rel}/components_{DOMAIN}/ (your usual hook).
+     A single iteration MAY combine both if the hypothesis logically requires it.
+  5. Validate component loadability (if you wrote one):
        python -c "
-       from agent.component_runtime_enterpriseops import load_components_from_dir
-       comps = load_components_from_dir('{comp_dir}', only=['<COMPONENT.name>'])
-       assert any(c.name == '<COMPONENT.name>' for cs in comps.values() for c in cs)
-       print('ok')
+       import importlib; m = importlib.import_module('{ '.'.join(next_rel.parts) }.runtime')
+       comps = m.load_components_from_dir('{next_rel}/components_{DOMAIN}')
+       print(sorted(c.name for c in comps))
        "
-  6. Write {PENDING_EVAL.relative_to(ROOT)} with this JSON schema:
+  6. Write {PENDING_EVAL.relative_to(ROOT)}:
        {{
          "candidate": {{
            "name": "candidate_iter{iteration}_<slug>",
            "hypothesis": "...",
-           "changes": "...",
-           "component": {{
-             "name": "...", "cls": "...", "mount": "...",
-             "file": "{comp_dir}/...py",
-             "trust": {{...}}
-           }},
-           "workflow_patch": {{
-             "op": "add_node|replace_node|disable_node",
-             "name": "<COMPONENT.name>",
-             "file": "{comp_dir}/...py"
+           "changes": "...",                        # natural language summary
+           "edited_files": ["{next_rel}/agent.py",  # explicit list, audit trail
+                            "{next_rel}/components_{DOMAIN}/iter{iteration}_<slug>.py"],
+           "trust": {{
+             "evidence_anchor": "...",
+             "blast_radius": "local|workflow|agent",  # agent = touched agent.py
+             "rollback_when": "...",
+             "out_of_evidence_probe": "..."
            }}
          }}
        }}
   7. Print one final line: CANDIDATE: <candidate_name>
 
 CRITICAL:
-  - Do NOT run benchmarks. Do NOT modify third_party/EnterpriseOps-Gym/,
-    meta_harness/scripts/run_enterpriseops_baseline.py,
-    agent/enterpriseops_agent.py, agent/component_runtime_enterpriseops/.
+  - Do NOT run benchmarks. The outer loop scores.
+  - Do NOT modify anything outside {next_rel}/. In particular, the
+    frozen v0 dir and other v_{DOMAIN}_<M> dirs are read-only.
+  - Do NOT modify third_party/EnterpriseOps-Gym/, meta_harness/, or
+    other domains' v_<OTHER>_<M> dirs / components_<other>/.
   - **The target inference model is LOCKED** to the configured provider
-    (default deepseek-chat). Do NOT call any other model API from a
-    component; the upstream LangChain ReAct loop binds the model once
-    per task and components only intercept around it.
-  - **Per-domain dirs (no cross-domain reads)**: other domains have
-    their own component dirs and logs. Do NOT read files under
-    components_enterpriseops_<other_domain>/,
-    logs_components_enterpriseops_<other_domain>/, or
-    workflows/enterpriseops_<other_domain>.yaml. Stick to YOUR domain only.
+    (default deepseek-chat) via agent.llm.chat. Components may call
+    ctx.chat(...) for a same-model sub-LLM; do NOT call any other API.
   - No task-specific hardcoding. No entity names or test-set IDs in code.
 
-NEW (Phase D event-runtime additions; see SKILL.md "Event runtime additions"):
-  - All 15 Tier-1 events fire in enterpriseops. You MAY use
-    `listens="on_tool_error"` / `"on_length_truncation"` /
-    `"pre_tool_arg_validation"` / `"post_tool_result_raw"` /
-    `"on_explicit_terminate"` etc. on your Component to subscribe to
-    runtime-synthesised events directly, instead of writing matchers on
-    `ctx.current_tool_success` / `ctx.finish_reason`. The `mount=` field
-    is still required for policy validation (set it to the closest Mount).
-  - `ctx.chat(messages, max_tokens=..., temperature=...)` is available for
-    sub-LLM verifier / re-format patterns — locked SUT model name via
-    agent.llm.chat (NOT the upstream langchain client). No `model=` kwarg.
-  - `ctx.emit("iter<N>_<slug>_<event>")` / `ctx.emit_upstream(...)` let two
-    components exchange data within one task. Declare `emits=(...)` on the
-    publisher for audit / discovery.
+Reminders about the component runtime (unchanged from prior iterations):
+  - Component file naming: any `*.py` (excluding `_*.py`) in components_{DOMAIN}/
+    is loaded as active. Replace by overwriting the same filename; disable by deleting.
+  - Lifecycle events (Tier-1, all fire in enterpriseops): session_start,
+    task_received, pre_prompt_build, pre_context_build, pre_agent_construct,
+    pre_llm_turn, pre_llm_request, post_llm_response, post_llm_response_raw,
+    on_length_truncation, on_empty_response, on_no_tool_call_emitted,
+    pre_tool_arg_validation, pre_tool_use, post_tool_use, post_tool_result_raw,
+    on_tool_error, on_explicit_terminate, pre_final_emit, session_end.
+  - ctx.chat(messages, max_tokens=..., temperature=...) → sub-LLM (locked model).
+  - ctx.emit("name") / ctx.emit_upstream(...) → publish/subscribe between components.
 """
 
 
-def run_proposer(iteration: int, log_dir: Path, skill_name: str) -> dict:
+def run_proposer(iteration: int, log_dir: Path, skill_name: str,
+                 next_dir: Path, prev_dir: Path) -> dict:
     print(f"\n=== enterpriseops/{DOMAIN} iter {iteration}: proposer starting "
-          f"(skill={skill_name}) ===", flush=True)
+          f"(skill={skill_name}, working_dir={next_dir.relative_to(ROOT)}) ===",
+          flush=True)
     max_attempts = 6
     for attempt in range(1, max_attempts + 1):
         result = claude_wrapper.run(
-            prompt=_proposer_prompt(iteration, skill_name),
+            prompt=_proposer_prompt(iteration, skill_name, next_dir, prev_dir),
             model=PROPOSER_MODEL,
             allowed_tools=PROPOSER_TOOLS,
             cwd=str(ROOT),
@@ -297,8 +288,7 @@ def run_proposer(iteration: int, log_dir: Path, skill_name: str) -> dict:
 
 
 def _baseline_subprocess_cmd(*, agent_name: str, iteration: int,
-                             workflow_path: Path, components_dir: Path,
-                             subset: str,
+                             agent_dir: Path, subset: str,
                              hypothesis: str, changes: str,
                              plugin_payload: dict | None) -> list[str]:
     if not UPSTREAM_PY.exists():
@@ -316,8 +306,7 @@ def _baseline_subprocess_cmd(*, agent_name: str, iteration: int,
         "--train-split", str(_train_split_for(DOMAIN)),
         "--test-split", str(_test_split_for(DOMAIN)),
         "--subsets", subset,
-        "--workflow", str(workflow_path),
-        "--components-dir", str(components_dir),
+        "--agent-dir", str(agent_dir),
         "--concurrency", str(TRAIN_PARALLEL),
         "--provider", PROVIDER,
         "--hypothesis", hypothesis,
@@ -337,18 +326,19 @@ def _baseline_env() -> dict[str, str]:
     return env
 
 
-def run_eval(workflow: Workflow, iteration: int, agent_name: str,
+def run_eval(agent_dir: Path, iteration: int, agent_name: str,
              hypothesis: str, changes: str, plugin_payload: dict) -> dict:
-    active = list(workflow.active_nodes())
     train_split = _train_split_for(DOMAIN)
     n_train = sum(1 for ln in train_split.read_text().splitlines() if ln.strip())
-    print(f"\n=== enterpriseops eval iter {iteration} active={active} on "
-          f"{DOMAIN} train-{n_train} ===", flush=True)
+    comp_dir = agent_dir / f"components_{DOMAIN}"
+    active = sorted(p.stem for p in comp_dir.glob("*.py")
+                    if not p.name.startswith("_")) if comp_dir.exists() else []
+    print(f"\n=== enterpriseops eval iter {iteration} agent_dir={agent_dir.relative_to(ROOT)} "
+          f"active_components={active} on {DOMAIN} train-{n_train} ===", flush=True)
     cmd = _baseline_subprocess_cmd(
         agent_name=agent_name,
         iteration=iteration,
-        workflow_path=WORKFLOW_YAML,
-        components_dir=_components_dir_for(DOMAIN),
+        agent_dir=agent_dir,
         subset="train",
         hypothesis=hypothesis,
         changes=changes,
@@ -372,11 +362,7 @@ def run_eval(workflow: Workflow, iteration: int, agent_name: str,
 
 
 def _previous_accepted_correct() -> int:
-    """Champion-gate: train_score.n_correct of the most recent accepted entry.
-
-    Iter 0 (v0 seed) counts as accepted. Skips rejected candidates so their
-    train_score never inflates the gate the next candidate must clear.
-    """
+    """Champion-gate: train_score.n_correct of the most recent accepted entry."""
     if not EVOLUTION_SUMMARY.exists():
         return 0
     for line in reversed(EVOLUTION_SUMMARY.read_text().splitlines()):
@@ -388,83 +374,44 @@ def _previous_accepted_correct() -> int:
     return 0
 
 
-def _backup_replace_file(patch: Patch, iteration: int) -> tuple[Path, Path] | None:
-    if patch.op is not PatchOp.REPLACE_NODE or not patch.file:
-        return None
-    live = ROOT / patch.file
-    bak = live.with_suffix(live.suffix + f".bak_iter{iteration}")
-    if bak.exists():
-        return live, bak
-    return None
-
-
-def _rollback_patch(prev_workflow: Workflow, patch: Patch,
-                    backup: tuple[Path, Path] | None) -> None:
-    prev_workflow.to_yaml(WORKFLOW_YAML)
-    if patch.op is PatchOp.ADD_NODE and patch.file:
-        f = ROOT / patch.file
-        if f.exists():
-            f.unlink()
-            print(f"  cleaned up rejected component file: {patch.file}", flush=True)
-    elif patch.op is PatchOp.REPLACE_NODE:
-        if backup is not None:
-            live, bak = backup
-            live.write_text(bak.read_text())
-            bak.unlink()
-            print(f"  restored {live.relative_to(ROOT)} from .bak", flush=True)
-        else:
-            print(f"  WARN: replace_node rejected but no .bak found at "
-                  f"{patch.file}.bak_iter<N>; file remains as-is", flush=True)
-
-
-def _commit_patch(patch: Patch, backup: tuple[Path, Path] | None) -> None:
-    if patch.op is PatchOp.REPLACE_NODE and backup is not None:
-        _, bak = backup
-        if bak.exists():
-            bak.unlink()
-
-
 def _score_and_update(iteration: int, candidate_row: dict,
-                      prev_workflow: Workflow, next_workflow: Workflow,
-                      patch: Patch, backup: tuple[Path, Path] | None) -> bool:
+                      prev_dir: Path, next_dir: Path) -> bool:
     prev_correct = _previous_accepted_correct()
     cand_correct = int(candidate_row.get("train_score", {}).get("n_correct", 0))
     accepted = cand_correct >= prev_correct
 
-    # Re-read all lines, update last
     lines = [ln for ln in EVOLUTION_SUMMARY.read_text().splitlines() if ln.strip()]
     last = json.loads(lines[-1])
     last["accepted"] = accepted
-    last["workflow_after"] = list(
-        (next_workflow if accepted else prev_workflow).active_nodes()
+    last["agent_dir"] = str(next_dir.relative_to(ROOT))
+    last["agent_dir_after"] = str(
+        (next_dir if accepted else prev_dir).relative_to(ROOT)
     )
     last["previous_accepted_correct"] = prev_correct
     lines[-1] = json.dumps(last, default=str)
     EVOLUTION_SUMMARY.write_text("\n".join(lines) + "\n")
 
     if accepted:
-        _commit_patch(patch, backup)
-        _save_frontier_snapshot(next_workflow, iteration)
+        _repoint_frontier(DOMAIN, next_dir)
         print(f"  accepted (train {cand_correct} ≥ {prev_correct}); "
-              f"frontier → {list(next_workflow.active_nodes())}", flush=True)
+              f"frontier → {next_dir.relative_to(ROOT)}", flush=True)
     else:
+        shutil.rmtree(next_dir)
         print(f"  REJECTED (train {cand_correct} < {prev_correct}); "
-              f"rolling back patch", flush=True)
-        _rollback_patch(prev_workflow, patch, backup)
+              f"removed {next_dir.relative_to(ROOT)}", flush=True)
     return accepted
 
 
 def final_test_eval() -> None:
-    """Run the accepted frontier workflow on the held-out test split once."""
-    wf = _load_frontier_workflow()
-    print(f"\n=== final test eval on {DOMAIN}: workflow active="
-          f"{list(wf.active_nodes())} ===", flush=True)
+    """Run the accepted frontier dir on the held-out test split once."""
+    frontier_dir = _resolve_frontier_dir(DOMAIN)
+    print(f"\n=== final test eval on {DOMAIN}: agent_dir="
+          f"{frontier_dir.relative_to(ROOT)} ===", flush=True)
     iteration = _current_iteration() - 1
     cmd = _baseline_subprocess_cmd(
         agent_name=f"frontier_iter{iteration}",
         iteration=iteration,
-        workflow_path=WORKFLOW_YAML,
-        components_dir=_components_dir_for(DOMAIN),
+        agent_dir=frontier_dir,
         subset="test",
         hypothesis="final test eval of accepted frontier",
         changes="",
@@ -489,16 +436,14 @@ def main() -> None:
     p.add_argument("--skill", default=DEFAULT_SKILL)
     args = p.parse_args()
 
-    global LOGS, WORKFLOW_YAML, PENDING_EVAL, FRONTIER_VAL, FRONTIER_WORKFLOW
-    global EVOLUTION_SUMMARY, DOMAIN, TRAIN_PARALLEL, PROVIDER
+    global LOGS, PENDING_EVAL, FRONTIER_VAL, EVOLUTION_SUMMARY
+    global DOMAIN, TRAIN_PARALLEL, PROVIDER
     DOMAIN = args.domain
     TRAIN_PARALLEL = args.train_parallel
     PROVIDER = args.provider
     LOGS = _logs_for(DOMAIN).resolve()
-    WORKFLOW_YAML = _workflow_yaml_for(DOMAIN).resolve()
     PENDING_EVAL = LOGS / "pending_eval.json"
     FRONTIER_VAL = LOGS / "frontier_val.json"
-    FRONTIER_WORKFLOW = LOGS / "frontier_workflow.json"
     EVOLUTION_SUMMARY = LOGS / "evolution_summary.jsonl"
 
     if not (SKILLS_PARENT / args.skill / "SKILL.md").exists():
@@ -506,40 +451,42 @@ def main() -> None:
     if not _train_split_for(DOMAIN).exists():
         raise SystemExit(f"train split missing: {_train_split_for(DOMAIN)}")
 
-    if not WORKFLOW_YAML.exists():
-        Workflow().to_yaml(WORKFLOW_YAML)
-    if not FRONTIER_WORKFLOW.exists():
-        _save_frontier_snapshot(_load_frontier_workflow(), 0)
-
     proposer_log_dir = LOGS / "proposer_sessions"
     proposer_log_dir.mkdir(parents=True, exist_ok=True)
 
     for _ in range(args.iterations):
         iteration = _current_iteration()
-        prev_workflow = _load_frontier_workflow()
+        prev_dir = _resolve_frontier_dir(DOMAIN)
+        next_dir = _v_dir(DOMAIN, iteration)
+        if next_dir.exists():
+            raise SystemExit(
+                f"next iter dir already exists: {next_dir}; clean it up first"
+            )
+        print(f"  cloning {prev_dir.relative_to(ROOT)} → "
+              f"{next_dir.relative_to(ROOT)}", flush=True)
+        shutil.copytree(prev_dir, next_dir, symlinks=True)
 
-        pending = run_proposer(iteration, proposer_log_dir, args.skill)
+        try:
+            pending = run_proposer(iteration, proposer_log_dir, args.skill,
+                                   next_dir, prev_dir)
+        except BaseException:
+            shutil.rmtree(next_dir, ignore_errors=True)
+            raise
         if args.proposer_only:
-            print("--proposer-only; stopping")
+            print("--proposer-only; stopping (leaving next_dir for inspection)")
             return
 
         cand = pending["candidate"]
-        patch = Patch.from_dict(cand["workflow_patch"])
-        backup = _backup_replace_file(patch, iteration)
-        next_workflow = apply_patch(prev_workflow, patch)
-        next_workflow.to_yaml(WORKFLOW_YAML)
-
         plugin_payload = {
-            "component": cand.get("component"),
-            "workflow_patch": cand.get("workflow_patch"),
+            "candidate": cand,
+            "agent_dir": str(next_dir.relative_to(ROOT)),
         }
         candidate_row = run_eval(
-            next_workflow, iteration, cand["name"],
+            next_dir, iteration, cand["name"],
             cand.get("hypothesis", ""), cand.get("changes", ""),
             plugin_payload,
         )
-        _score_and_update(iteration, candidate_row,
-                          prev_workflow, next_workflow, patch, backup)
+        _score_and_update(iteration, candidate_row, prev_dir, next_dir)
         if PENDING_EVAL.exists():
             PENDING_EVAL.unlink()
 

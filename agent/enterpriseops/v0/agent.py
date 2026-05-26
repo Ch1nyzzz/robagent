@@ -32,8 +32,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Make upstream imports resolvable.
-_ROOT = Path(__file__).resolve().parent.parent
+# Make upstream imports resolvable. This file lives at
+# agent/enterpriseops/<v_dir>/agent.py — repo root is 4 levels up.
+_ROOT = Path(__file__).resolve().parents[3]
 _UPSTREAM = _ROOT / "third_party" / "EnterpriseOps-Gym"
 if str(_UPSTREAM) not in sys.path:
     sys.path.insert(0, str(_UPSTREAM))
@@ -50,7 +51,7 @@ from benchmark.executor import BenchmarkExecutor  # noqa: E402
 from benchmark.models import BenchmarkConfig, LLMConfig  # noqa: E402
 from orchestrators.react import ReactOrchestrator  # noqa: E402
 
-from agent.component_runtime_enterpriseops import (  # noqa: E402
+from .runtime import (  # noqa: E402
     ComponentContext,
     Dispatcher,
     build_dispatcher,
@@ -328,7 +329,6 @@ async def run_task(
     *,
     domain: str = "unknown",
     task_id: str = "",
-    workflow_path: Optional[Path] = None,
     components_dir: Optional[Path] = None,
     run_tag: Optional[str] = None,
     component_state_dir: Optional[Path] = None,
@@ -348,14 +348,11 @@ async def run_task(
         Domain slug for ComponentContext.benchmark (e.g. "calendar", "itsm").
     task_id
         Task identifier for ComponentContext.task_id.
-    workflow_path
-        Path to the workflow YAML (e.g.
-        `meta_harness/workflows/enterpriseops_calendar.yaml`). If None,
-        falls back to ENTERPRISEOPS_COMPONENT_WORKFLOW env var, else empty
-        workflow (= no components = v0 parity).
     components_dir
-        Directory containing component .py files. If None, env var
-        ENTERPRISEOPS_COMPONENT_DIR, else COMPONENTS_DIR_DEFAULT.
+        Directory containing component .py files. Every `*.py` in the dir
+        (except `_*.py`) is loaded as an active component. If None, defaults
+        to the sibling `components_<domain>/` next to this file — i.e. the
+        components live with the agent in the same v_N tree.
     run_tag
         Run identifier for the dispatcher trace sink. Defaults to "default".
     component_state_dir
@@ -365,8 +362,10 @@ async def run_task(
         relative paths internally. Defaults to "<inline>" since we pass the
         config dict directly.
     """
+    if components_dir is None:
+        components_dir = Path(__file__).resolve().parent / f"components_{domain}"
+
     disp = build_dispatcher(
-        workflow_path=workflow_path,
         comp_dir=components_dir,
         run_tag=run_tag,
         state_dir=component_state_dir,
