@@ -31,6 +31,7 @@ recursion depth at 10 to break runaway loops.
 """
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from typing import Any, Callable, Iterable
 
@@ -77,7 +78,13 @@ class Dispatcher:
         self._validate = validate_decision
         self._apply = apply_decision
         self._trace = trace_sink
-        self._depth = 0
+        # Per-thread emit-depth counter. The Dispatcher is process-singleton
+        # (cached at module level in each sibling's base.py) so the previous
+        # `self._depth = 0` was SHARED across worker threads at parallel>1
+        # — N concurrent emits at the same event tripped the recursion cap
+        # without any real recursion. threading.local() keeps each worker's
+        # depth isolated.
+        self._depth_state = threading.local()
         self._max_depth = max_recursion_depth
 
     @staticmethod
@@ -101,13 +108,14 @@ class Dispatcher:
         return sorted(self._by_event.keys())
 
     def emit(self, event_name: str, ctx: Any) -> None:
-        if self._depth >= self._max_depth:
+        depth = getattr(self._depth_state, "depth", 0)
+        if depth >= self._max_depth:
             raise RuntimeError(
-                f"ctx.emit recursion depth {self._depth} exceeded "
+                f"ctx.emit recursion depth {depth} exceeded "
                 f"max_recursion_depth={self._max_depth} at event "
                 f"{event_name!r}; check for emit cycles among components."
             )
-        self._depth += 1
+        self._depth_state.depth = depth + 1
         # Tag the context with the firing event name so handlers / apply hooks
         # can route on `ctx.event` without the caller threading it. Restore on
         # exit so an in-handler `ctx.emit(custom)` does not leak back to the
@@ -146,4 +154,4 @@ class Dispatcher:
                     setattr(ctx, "event", prev_event if prev_event is not None else "")
                 except (AttributeError, TypeError):
                     pass
-            self._depth -= 1
+            self._depth_state.depth = getattr(self._depth_state, "depth", 1) - 1
