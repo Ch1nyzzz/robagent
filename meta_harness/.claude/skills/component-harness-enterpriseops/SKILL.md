@@ -1,81 +1,143 @@
 ---
 name: component-harness-enterpriseops
-description: Propose ONE hook (a single Python file declaring `COMPONENT: Component`) that stabilizes the EnterpriseOps-Gym main agent on a recurring failure mode for ONE domain, plus a workflow patch (add / replace / disable) against `meta_harness/workflows/enterpriseops_<domain>.yaml`. The main agent runs the upstream React loop over dockerized MCP gym servers (LangChain + MCP tool dispatch); judging is SQL-verifier on the final DB state. Hooks subscribe to lifecycle events via `listens=` and react via a Decision (allow / block / rewrite / inject_context). Admission gated by a class×event×decision matrix and a Trust block (evidence_anchor + out_of_evidence_probe).
+description: Propose ONE iteration on the EnterpriseOps-Gym wrapper agent for ONE domain (calendar | itsm). The frontier IS a directory (`agent/enterpriseops/v_<domain>_<N>/`); the outer loop clones it for you and you edit anything inside. Two paths are first-class: capability (edit agent.py — SYSTEM_PROMPT, tool registration, orchestrator) and stabilization (add/edit/delete files in components_<domain>/). The main agent runs upstream's React loop over dockerized MCP gym servers; judging is SQL-verifier on the final DB state. Components subscribe to lifecycle events via `listens=` and react via a Decision (allow / block / rewrite / inject_context); the class×event×decision matrix and a Trust block (evidence_anchor + out_of_evidence_probe) gate them.
 ---
 
 # component-harness-enterpriseops
 
-The EnterpriseOps-Gym main agent is the protagonist. For each domain (`calendar`, `itsm`, `hybrid`, …) it runs upstream's React loop (`third_party/EnterpriseOps-Gym/orchestrators/react.py`) over dockerized MCP gym servers using LangChain + MCP tool dispatch, with the locked SUT model. Judging is **outcome-based**: each task's verifiers run as SQL queries on the gym DB after the loop ends; a task passes only if ALL verifiers match — there is no "predicted output" text to score. **Your job is to stabilize it**, not replace it. You propose ONE hook — a single Python file under `agent/components_enterpriseops_<domain>/<name>.py` exporting `COMPONENT: Component` — plus a workflow patch (`add` / `replace` / `disable`). **You do NOT run benchmarks.** The outer loop applies the patch, scores on the domain's train subset, and admits or rejects.
+## What you propose
+
+The outer loop has cloned the prior frontier directory into a fresh
+`agent/enterpriseops/v_<domain>_<N>/` for you. **That directory is your
+candidate.** If accepted, the symlink `agent/enterpriseops/current_<domain>`
+moves to point at it; if rejected, the entire directory is deleted.
+
+You may edit ANY file inside the candidate dir. Two paths are first-class:
+
+| Path | What you edit | When |
+|---|---|---|
+| **Capability** | `agent.py` (and/or new files alongside it) — SYSTEM_PROMPT, tool registration in `available_tools`, orchestrator subclass, max_iterations, retry policy | The agent is missing knowledge / a tool / a structural ability the task class genuinely needs |
+| **Stabilization** | `components_<domain>/*.py` — add a hook with a `Component` declaration | The agent already has the capability but a recurring small structural error costs verifier passes |
+
+A single iter MAY combine both if the hypothesis requires it. **You still
+propose ONE coherent change** — one hypothesis, one trust block — even if
+that change touches multiple files.
+
+You do NOT run benchmarks. The outer loop scores on the domain's train
+subset and admits or rejects.
 
 ## What EnterpriseOps-Gym tasks look like
 
-A task = one row from HuggingFace `ServiceNow-AI/EnterpriseOps-Gym` split `<domain>` config `oracle` (or `plus_5_tools` / `plus_10_tools` / `plus_15_tools` for tool-retrieval stress). The agent receives:
+A task = one row from HuggingFace `ServiceNow-AI/EnterpriseOps-Gym` split
+`<domain>` config `oracle` (or `plus_N_tools`). The agent receives:
   * `system_prompt` (str) — agent role + domain policy
   * `user_prompt` (str) — NL task instruction
   * `selected_tools` (list[str]) — oracle tool set (or oracle + N distractors)
-  * `gym_servers_config` (list[dict]) — one or more dockerized MCP servers
-  * `verifiers` (list[dict]) — **OPAQUE to the agent**: SQL queries the judge runs over the final DB state. You may NOT read `ctx.verifiers` from a hook.
+  * `gym_servers_config` (list[dict]) — dockerized MCP server(s)
+  * `verifiers` (list[dict]) — **OPAQUE**: SQL queries the judge runs over the
+    final DB state. You may NOT read `ctx.verifiers` from a component.
 
 Common failure modes (calendar / itsm baselines):
   * **Tool-arg shape error** — `start: "2025-11-14T15:00"` vs expected `start_datetime` + separate `timezone`.
-  * **Wrong tool selected** — `get_event` to search by name when `list_events` + filter is required.
-  * **Field-format mismatch** — ACL with `scope_email: "carol"` vs verifier expecting `"carol.white@techcorp.com"`.
-  * **Missing intermediate step** — event created but `insert_acl_rule` never called.
-  * **Date/timezone confusion** — `start_timezone: 'America/New_York'` when verifier expects `'UTC'`.
+  * **Wrong tool selected** — `update_calendar` vs `update_calendar_in_list` (different resources).
+  * **Field-format mismatch** — `scope_email: "carol"` vs verifier expecting `"carol.white@techcorp.com"`.
+  * **Missing API field** — `visibility='private'` when verifier expects `'confidential'`.
+  * **Date/timezone confusion** — `start_timezone='UTC'` when verifier expects `'Asia/Singapore'`.
   * **Loop exhaustion** — hits `max_iterations` mid-task.
 
 ## First principles
 
-0. **Main agent is the protagonist.** Hooks stabilize MCP-tool arg shapes / retries / one-shot policy nudges; they don't reconstruct the action sequence in Python. Before writing a hook, ask: "would the main agent still be the same agent without this — just less prone to failing on X?" If "no, it'd be doing fundamentally different work" (e.g. you've built the entire correct MCP-call sequence in the handler), the hook is too heavy.
-1. **Capability vs Stabilization — keep them separate.** If a domain is failing because the agent literally can't reach a needed tool / server, that's a capability gap — file it as an MCP server / tool registration, not a hook that injects the would-be tool result.
-2. **The LLM is the last resort within stabilization.** Move tool-arg validation, parameter normalisation (email casing, datetime→UTC), required-field enforcement, retry-on-failure into Python.
-3. **Code earns its place by capturing stable structure, not by fitting recent failures.** Anchor on an MCP tool's JSON Schema, a timezone library, the gym server's `list_tools` response, an LLM API field, RFC 5322. IF/THEN induced from N failed train rows is a memorised map; it overfits.
-4. **Per-domain specialization.** Components live in per-domain dirs (`agent/components_enterpriseops_<domain>/`) and are namespaced by domain. Work for ONE domain only.
-5. **Verifiers are opaque.** Hooks key off MCP tool schemas, user_prompt structure, tool errors, `finish_reason` — NEVER the SQL queries in `verifiers`.
+0. **Main agent is the protagonist.** Hooks stabilize MCP-tool arg shapes /
+   retries / one-shot policy nudges; capability edits extend what the agent
+   can reach. Neither should reconstruct the action sequence in Python.
 
-## Toolbox (pick what fits — none of these are exclusive)
+1. **Capability vs Stabilization — keep them separate at the file level.**
+   Edits to `agent.py` are capability moves. Files in `components_<domain>/`
+   are stabilization. Don't conflate (e.g. don't write a giant component
+   that injects an API cheatsheet on every task — put that into `SYSTEM_PROMPT`
+   in agent.py instead).
 
-| When you'd reach for it | What you change |
-|---|---|
-| Main agent can't reach a tool / server it needs | Register a new MCP server or tool (Capability expansion — separate workflow, **not this skill**) |
-| Main agent calls an MCP tool with the wrong arg shape | Write a `pre_tool_arg_validation` `mechanism_layer` (this skill) |
-| Tool returns error and the LLM loops on identical args | Write an `on_tool_error` `reactive_guard` (this skill) |
-| Agent ends loop without making the DB write the verifier checks | Write an `on_explicit_terminate` `reactive_guard` (this skill — refuses termination) |
-| Static framework nudge ("always pass full email in ACL scope") | Write a `mechanism_layer` on `session_start` (this skill) |
-| Multiple hooks need to coordinate | Custom event: A `ctx.emit("iter<N>_<slug>_X")`, B `listens="iter<N>_<slug>_X"` |
+2. **Code earns its place by capturing stable structure, not by fitting
+   recent failures.** Anchor on a tool's JSON Schema, RFC 5322, ISO 8601,
+   the gym server's `list_tools` response, a documented API field. "I
+   observed N failures all do X" is anchoring inside evidence.
 
-## The component model
+3. **The LLM is the last resort within stabilization.** Move tool-arg
+   normalisation, datetime→UTC fills, required-field enforcement, retry-on-failure
+   into deterministic Python.
+
+4. **Per-domain specialization.** components live in domain-scoped
+   `components_<domain>/`. A calendar iter does not touch `components_itsm/`
+   and vice versa. The agent.py CAN have generic edits that benefit both
+   domains (e.g. a tool-schema validator), but be honest about it in trust.
+
+5. **Verifiers are opaque.** Components key off MCP tool schemas, user_prompt
+   structure, tool errors, `finish_reason` — NEVER the SQL queries in `verifiers`.
+
+## Working directory layout
+
+The outer loop tells you the candidate dir. It looks like:
+
+```
+agent/enterpriseops/v_<domain>_<N>/
+    agent.py                          # the wrapper agent — SYSTEM is fine to edit
+    runtime/                          # dispatcher / policy / types
+        __init__.py
+        base.py
+        policy.py                     # class × event × decision matrix
+        registry.py
+        types.py
+    components_<domain>/              # YOUR stabilization-component dir
+        __init__.py
+        <existing files from prior frontier, if any>
+```
+
+Activation rule: every `*.py` in `components_<domain>/` (except `_*.py`) is
+loaded. **Delete** a file to disable. **Overwrite** a file to replace.
+**Add** a file with a unique `COMPONENT.name` to extend.
+
+There is no workflow.yaml. There is no Patch op. The file system is the state.
+
+## The component model (unchanged)
 
 ```python
 @dataclass(frozen=True, kw_only=True)
 class Component:
-    name: str                              # stable id; reuse for `replace`
+    name: str                              # stable id; reuse to replace
     cls: ComponentClass                    # mechanism_layer | reactive_guard | induced_rule
     listens: str                           # event name the dispatcher routes on
     matcher: Optional[Callable[[Ctx], bool]]
     handler: Callable[[Ctx], Decision]
     trust: Trust                           # required verification block
     priority: int = 100                    # smaller fires first within an event bucket
-    emits: tuple[str, ...] = ()            # self-doc of custom Tier-2/3 events this raises
+    emits: tuple[str, ...] = ()            # custom Tier-2/3 events this raises
 ```
 
-### Lifecycle events the EnterpriseOps runtime emits
+Components in this v_N use **relative imports** so `cp -r` carries them forward:
+
+```python
+from ..runtime import (
+    Component, ComponentClass, ComponentContext, Decision, Trust,
+)
+```
+
+## Lifecycle events the EnterpriseOps runtime emits
 
 Per-task setup:
 
 | event | when it fires | typical use |
 |---|---|---|
 | `task_received` | top of `run_task` | lifecycle anchor |
-| `session_start` | once per task, after MCP tools discovered | "always pass full email in ACL scope" style injection |
-| `pre_prompt_build` | per task; default system+user prompts built | rewrite user prompt; inject domain policy reminder |
-| `pre_context_build` | alias of `pre_prompt_build` | same as above |
+| `session_start` | once per task, after MCP tools discovered | one-shot policy injection |
+| `pre_prompt_build` | per task; default system+user prompts built | rewrite user prompt; inject domain policy |
+| `pre_context_build` | alias of `pre_prompt_build` | same |
 | `pre_agent_construct` | last hook before BenchmarkConfig sealed | inference-hint injection |
 
 Per LLM turn (avg ~9 turns / task, max 34):
 
 | event | when it fires | typical use |
 |---|---|---|
-| `pre_llm_turn` | per turn, before `llm_client.invoke_with_tools()` | rewrite messages list (re-add user_info context) |
+| `pre_llm_turn` | per turn, before `llm_client.invoke_with_tools()` | rewrite messages list |
 | `pre_llm_request` | per turn (alias for `pre_llm_turn`) | sub-LLM verifier prep |
 | `post_llm_response` / `post_llm_response_raw` | per turn, after LangChain response | rewrite assistant content; queue retry hint |
 | `on_length_truncation` | **synthesised** when `finish_reason=="length"` | sub-LLM recovery |
@@ -100,9 +162,12 @@ Per-task exit:
 | `pre_final_emit` | after loop exit, AFTER upstream SQL verifiers ran (observational) | observational only — verifier outcome is fixed by now |
 | `session_end` | bookkeeping | — |
 
-**Why `pre_final_emit` is weak**: judging is outcome-based on the final DB state, not on the agent's last text. Rewriting `ctx.final_output` does not change the verifier result — it only changes what downstream consumers see logged. Useful hooks target `pre_tool_arg_validation` / `pre_tool_use` (deterministic arg fix-up), `post_llm_response` / `on_*` (catch and retry), and `session_start` / `pre_prompt_build` (one-shot policy injection), plus `on_explicit_terminate` for artifact gates.
-
-Helpers: `matcher_for_tool("create_event")` and `matcher_for_server("calendar")` from `agent.component_runtime_enterpriseops.types` scope matchers cleanly to one tool or one gym server (useful in multi-gym hybrid tasks).
+**Why `pre_final_emit` is weak**: judging is outcome-based on the final
+DB state, not on the agent's last text. Rewriting `ctx.final_output` does
+not change verifier outcomes. Useful events: `pre_tool_arg_validation` /
+`pre_tool_use` (deterministic arg fix-up), `post_llm_response` / `on_*`
+(catch and retry), and `session_start` / `pre_prompt_build` (one-shot
+policy injection), plus `on_explicit_terminate` for artifact gates.
 
 ### Component classes
 
@@ -135,10 +200,22 @@ Event → REWRITE payload:
 
 ### Trust
 
-Required: `evidence_anchor` / `blast_radius` (local|workflow|global) / `rollback_when`. `out_of_evidence_probe` required for `induced_rule`. Optional: `fallback`.
+Required: `evidence_anchor` / `blast_radius` / `rollback_when`.
+`out_of_evidence_probe` required for `induced_rule`. Optional: `fallback`.
 
-- `evidence_anchor`: name a stable structure OUTSIDE evidence — an MCP tool JSON Schema field, RFC 5322, ISO 8601, the gym server's `list_tools` response, an OpenAI/DeepSeek API field. If your anchor is "I observed row_017/023/041 all do X", you're anchored INSIDE evidence — pick a different class or don't write the hook.
-- `out_of_evidence_probe` (induced_rule only): name one concrete case NOT in evidence rows where the matcher fires and what handler returns on it.
+`blast_radius`:
+| value | when |
+|---|---|
+| `local` | a single component file with a narrow matcher |
+| `workflow` | multiple components or a coordinated multi-file stabilization change |
+| `agent` | you edited `agent.py` (capability path) — call it out |
+
+- `evidence_anchor`: name a stable structure OUTSIDE evidence — an MCP tool
+  JSON Schema field, RFC 5322, ISO 8601, the gym server's `list_tools`
+  response, an OpenAI/DeepSeek API field. If your anchor is "I observed
+  row_017/023/041 all do X", you're anchored INSIDE evidence.
+- `out_of_evidence_probe` (induced_rule only): name one concrete case NOT
+  in evidence rows where the matcher fires and what handler returns.
 
 ### Handler helpers on `ctx`
 
@@ -150,60 +227,80 @@ Required: `evidence_anchor` / `blast_radius` (local|workflow|global) / `rollback
 | `ctx.emit("custom_event_name", **fields)` | fire custom event; re-enters dispatcher (depth cap 10) |
 | `ctx.emit_upstream(key, value)` | shorthand for `ctx.upstream[key] = value` |
 
-Per-event fields: `ctx.benchmark` (domain slug), `ctx.user_info` (`{user_id, name, email, timezone}`), `ctx.gym_servers`, `ctx.tool_specs` (each `{name, description, input_schema, _mcp_server_name, ...}`), `ctx.selected_tools`, `ctx.extras`, `ctx.system_prompt`, `ctx.user_prompt`, `ctx.messages`, `ctx.raw_response`, `ctx.tool_calls`, `ctx.turn_index`, `ctx.finish_reason`, `ctx.current_tool_name / _args / _result / _result_str / _call_id / _success / _error / _server`, `ctx.final_output`. **NEVER read `ctx.verifiers`** (grading rubric). NEVER read `ctx.task_id`.
+Per-event fields: `ctx.benchmark` (domain slug), `ctx.user_info`
+(`{user_id, name, email, timezone}`), `ctx.gym_servers`, `ctx.tool_specs`
+(each `{name, description, input_schema, _mcp_server_name, ...}`),
+`ctx.selected_tools`, `ctx.extras`, `ctx.system_prompt`, `ctx.user_prompt`,
+`ctx.messages`, `ctx.raw_response`, `ctx.tool_calls`, `ctx.turn_index`,
+`ctx.finish_reason`, `ctx.current_tool_name / _args / _result /
+_result_str / _call_id / _success / _error / _server`, `ctx.final_output`.
+**NEVER read `ctx.verifiers`** (grading rubric). NEVER read `ctx.task_id`.
 
 ## The class × event × decision matrix
 
-Load-time gate at `agent/component_runtime_enterpriseops/policy.py::ALLOWED`.
+Load-time gate at `runtime/policy.py::ALLOWED`. See that file for the
+authoritative truth.
 
-Setup events: `mechanism_layer` admits `inject_context` (+ `rewrite` / `block` on `pre_prompt_build` / `pre_context_build`); `induced_rule` admits `inject_context` (ADVISORY) on `pre_prompt_build` / `pre_context_build`; `reactive_guard` does not fire.
-
-Per-turn / per-tool events: `mechanism_layer` and `reactive_guard` admit `rewrite` / `block` / `inject_context` per the cell (see policy.py).
-
-Exit events: `mechanism_layer` and `reactive_guard` admit `rewrite` + `block` on `pre_final_emit`, `block` on `on_explicit_terminate`, `allow` on `session_end`.
-
-`predictive_heuristic` is rejected at every event.
-
-## The workflow file
-
-Per-domain frontier YAML: `meta_harness/workflows/enterpriseops_<domain>.yaml`.
-
-```yaml
-nodes: []
-disabled: []
-```
-
-Plus a JSON snapshot `meta_harness/logs_components_enterpriseops_<domain>/frontier_workflow.json`.
-
-### Patch ops
-
-| op | meaning |
-|---|---|
-| `add` | append a new node; `agent/components_enterpriseops_<domain>/<id>.py` must be newly written |
-| `replace` | keep the existing id; overwrite the file (same `COMPONENT.name`) |
-| `disable` | add the id to `disabled:`; file remains for durability audit |
-
-For `replace`, the **first shell action MUST be** `cp agent/components_enterpriseops_<domain>/<existing>.py agent/components_enterpriseops_<domain>/<existing>.py.bak_iter<N>`.
+- Setup events: `mechanism_layer` admits `inject_context` (+ `rewrite` /
+  `block` on `pre_prompt_build` / `pre_context_build`); `induced_rule`
+  admits `inject_context` (ADVISORY) on `pre_prompt_build` /
+  `pre_context_build`; `reactive_guard` does not fire.
+- Per-turn / per-tool events: `mechanism_layer` and `reactive_guard`
+  admit `rewrite` / `block` / `inject_context` per the cell.
+- Exit events: `mechanism_layer` and `reactive_guard` admit `rewrite` +
+  `block` on `pre_final_emit`, `block` on `on_explicit_terminate`,
+  `allow` on `session_end`.
+- `predictive_heuristic` is rejected at every event.
 
 ## Hard rules
 
-- Exactly ONE patch per invocation.
-- **You do NOT run benchmarks.** No `run_enterpriseops_baseline.py`, no `evaluate.py`. The outer loop scores.
-- **No task-specific code.** No domain-specific entity literals (no calendar names, user names, UUIDs). No encoded gold answers.
-- **You may NOT read `ctx.verifiers`** to drive hook logic — that is the test set's grading rubric. Hooks target structure (tool schemas, user_prompt patterns, `finish_reason`) — never the SQL queries.
-- **The target inference model is LOCKED via the upstream LLM config.** Hooks do NOT call langchain / direct API for additional model calls. `ctx.chat()` IS permitted (goes through `agent.llm.chat`, same locked SUT model name).
-- **Capability gaps are not for hooks.** If a domain genuinely needs a new MCP server / tool, file a separate request — do not invent a hook that injects the would-be tool result.
-- For `replace`, the **first shell action** MUST be the `cp ... .bak_iter<N>` command above.
-- READ-ONLY: `third_party/EnterpriseOps-Gym/`, `agent/enterpriseops_agent.py`, `agent/component_runtime_enterpriseops/`, `agent/llm.py`, all other domains' `agent/components_enterpriseops_*/`, `meta_harness/scripts/run_enterpriseops_baseline.py`, `meta_harness/scripts/enterpriseops_smoke.py`, `meta_harness/scripts/select_enterpriseops_split.py`.
-- Component file naming: `agent/components_enterpriseops_<domain>/component_enterpriseops_<domain>_iter<N>_<slug>.py`. The `COMPONENT.name` SHOULD include the domain slug.
+- **ONE coherent change per iteration.** Multiple files OK if they realize
+  one hypothesis; multiple unrelated hypotheses are NOT.
+- **You do NOT run benchmarks.** The outer loop scores.
+- **No task-specific code.** No entity literals (no calendar names, user
+  names, UUIDs, gold answers).
+- **You may NOT read `ctx.verifiers`** to drive component logic.
+- **The target inference model is LOCKED.** Components do NOT call
+  langchain / direct API for additional calls. `ctx.chat()` IS permitted
+  (goes through `agent.llm.chat`, same locked SUT model).
+- **Stay inside the candidate dir** the outer loop gave you. Do NOT modify
+  the frozen `agent/enterpriseops/v0/` or other v_N dirs.
+- **Cross-domain isolation**: A calendar iter does NOT modify
+  `components_itsm/` and vice versa. The agent.py is shared inside YOUR
+  candidate dir but if your edits there benefit only one domain, be honest
+  in the hypothesis.
+- READ-ONLY (outside the candidate dir): `third_party/EnterpriseOps-Gym/`,
+  `agent/enterpriseops/v0/` (frozen control), all other v_*_N dirs,
+  `meta_harness/scripts/run_enterpriseops_baseline.py`,
+  `meta_harness/meta_harness_components_enterpriseops.py`,
+  `agent/llm.py`.
+- Component file naming: `components_<domain>/<descriptive_slug>.py`.
+  `COMPONENT.name` SHOULD encode `<domain>_<slug>` to keep namespaces clear
+  across v_N forks.
 
-## Component file template
+## Capability path: editing `agent.py`
+
+Common edits:
+
+| Edit | What it accomplishes |
+|---|---|
+| Extend `SYSTEM_PROMPT` (a constant set inside `run_task` or alongside it) with an API cheatsheet | Teach baseline the API quirks (e.g. Google Calendar `defaultReminders` lives on calendarList) instead of stamping a session_start inject_context |
+| Add a new tool in the wrapper agent | Genuine capability extension (rare; usually a gym-server change is needed) |
+| Wrap MCP tool args with a schema validator before the LLM ever sees them | Cross-cutting deterministic guard (alt: pre_tool_arg_validation component) |
+| Change `max_iterations` or per-turn `max_tokens` | Address loop exhaustion / length truncation systemically |
+| Add a verifier sub-LLM step inside the orchestrator subclass | Cross-cutting verification (alt: post_llm_response component) |
+
+If your change is a one-liner add to SYSTEM_PROMPT, prefer that over a
+session_start component — it's the canonical capability path and avoids
+hook-noise across unrelated tasks.
+
+## Stabilization path: writing a component
 
 ```python
-# agent/components_enterpriseops_<domain>/component_enterpriseops_<domain>_iter<N>_<slug>.py
+# components_<domain>/<slug>.py
 from __future__ import annotations
 
-from agent.component_runtime_enterpriseops import (
+from ..runtime import (
     Component, ComponentClass, ComponentContext, Decision, Trust,
 )
 
@@ -213,13 +310,12 @@ def _matches(ctx: ComponentContext) -> bool:
     # ctx.current_tool_args / ctx.current_tool_result_str / ctx.finish_reason /
     # ctx.user_info / ctx.tool_specs / ctx.current_tool_server / ctx.shared.
     # ctx.event names the firing event for branchable handlers.
-    # NEVER read ctx.verifiers (= grading rubric).
-    # NEVER read ctx.task_id.
+    # NEVER read ctx.verifiers. NEVER read ctx.task_id.
     ...
 
 
 def _handler(ctx: ComponentContext) -> Decision:
-    return Decision.rewrite(...)        # or inject_context / block / allow
+    return Decision.rewrite(...)   # or inject_context / block / allow
 
 
 COMPONENT = Component(
@@ -244,62 +340,85 @@ COMPONENT = Component(
 
 ```json
 {
-  "iteration": <N>,
   "candidate": {
     "name": "candidate_iter<N>_<slug>",
     "hypothesis": "<one-sentence falsifiable claim of the failure mode>",
-    "mechanism": "<failure mode this targets>",
-    "evidence_task_ids": ["<rid1>", "<rid2>", "<rid3>"],
-    "changes": "<plain-English diff vs prior frontier>",
-    "expected_delta": "<expected pass-rate change on train>",
-    "component": {
-      "id": "<COMPONENT.name>",
-      "cls": "mechanism_layer | reactive_guard | induced_rule",
-      "listens": "<event_name>",
-      "file": "agent/components_enterpriseops_<domain>/component_enterpriseops_<domain>_iter<N>_<slug>.py",
-      "trust": {
-        "evidence_anchor": "...",
-        "blast_radius": "local | workflow | global",
-        "rollback_when": "...",
-        "out_of_evidence_probe": "<required for induced_rule>",
-        "fallback": "..."
-      }
-    },
-    "workflow_patch": {
-      "op": "add | replace | disable",
-      "name": "<COMPONENT.name; existing id for disable>",
-      "file": "agent/components_enterpriseops_<domain>/component_enterpriseops_<domain>_iter<N>_<slug>.py"
+    "changes": "<plain-English summary of what was edited and why>",
+    "edited_files": [
+      "agent/enterpriseops/v_<domain>_<N>/agent.py",
+      "agent/enterpriseops/v_<domain>_<N>/components_<domain>/<slug>.py"
+    ],
+    "trust": {
+      "evidence_anchor": "...",
+      "blast_radius": "local | workflow | agent",
+      "rollback_when": "...",
+      "out_of_evidence_probe": "<required for induced_rule>",
+      "fallback": "..."
     }
   }
 }
 ```
 
-For `disable`, omit `component` and `workflow_patch.file`; only `workflow_patch.name` matters.
+`edited_files` is mandatory and lists every file you touched inside the
+candidate dir. The outer loop reads this for the audit trail.
 
 ## How to investigate
 
-1. **Read `frontier_val.json`'s `per_task`** at `meta_harness/logs_components_enterpriseops_<domain>/frontier_val.json` to find tasks the frontier scores 0 on. Each entry has `agent`, `score` (0/1), `verifier_pass_rate` (partial credit; useful for picking "almost-correct" failures).
-2. **Read baseline results** at `meta_harness/logs_components_enterpriseops_<domain>/baseline/<ts>/{train,test}/results/run_1/results_*.json`. Each file has `runs[0]` with `conversation_flow`, `tools_used`, `tool_results`, `verification_results` (per-verifier name → `{passed, error, details}`), `verification_summary`, `overall_success`.
-3. **Look for ≥3 failures sharing the same mechanism.** Examples:
-   - 3 failures call `insert_acl_rule` with `scope_email: "carol"` but verifier checks `scope_email = 'carol.white@techcorp.com'` → `pre_tool_arg_validation` MECHANISM_LAYER that looks up the full email in `ctx.user_prompt` / `ctx.user_info` and rewrites. Anchor: RFC 5322 + the tool's `scope_email` JSON Schema field.
-   - 3 failures emit `create_event` with `start_datetime: "2025-11-14T15:00"` and no timezone → `pre_tool_arg_validation` REWRITE that normalises naive datetimes to UTC and fills `start_timezone`. Anchor: ISO 8601 + the tool's schema.
-   - 3 failures' assistant content shows a SQL-style WHERE clause → `post_llm_response` REACTIVE_GUARD that `inject_context`s "use the list_X tool with a filter argument".
-4. **Form ONE hypothesis** tied to a stable structure. State it in `trust.evidence_anchor`.
-5. **Write ONE hook** with the smallest possible matcher/handler. Resist embedding entity literals (no `"carol.white@techcorp.com"` literal — look it up from `ctx.user_info` / `ctx.user_prompt` at fire time).
-6. **Validate**:
+1. **Read `frontier_val.json`'s `per_task`** at
+   `meta_harness/logs_components_enterpriseops_<domain>/frontier_val.json`
+   to find tasks the frontier scores 0 on. Each entry has `agent`, `score`
+   (0/1), `verifier_pass_rate` (partial credit; useful for picking
+   "almost-correct" failures).
+
+2. **Read v0 per-task traces** at
+   `meta_harness/logs_components_enterpriseops_<domain>/v0__train__traces/<task_id>.json`.
+   Each file's `result.runs[0]` has `conversation_flow`, `tools_used`,
+   `tool_results`, `verification_results` (per-verifier name →
+   `{passed, error, details}`), `verification_summary`, `overall_success`.
+
+3. **Read the prior iteration's component fire trace** at
+   `.component-state-enterpriseops/<run_tag>/fired.jsonl` (absent on the
+   first iter past v0). Confirms whether the prior frontier's components
+   are actually firing.
+
+4. **Look for ≥3 failures sharing the same mechanism.** Examples:
+   - 3 failures call `insert_acl_rule` with `scope_email: "carol"` but
+     verifier checks `scope_email = 'carol.white@techcorp.com'` →
+     `pre_tool_arg_validation` MECHANISM_LAYER that looks up the full
+     email in `ctx.user_prompt` / `ctx.user_info` and rewrites. Anchor:
+     RFC 5322 + tool's `scope_email` JSON Schema field.
+   - 3 failures emit `create_event` with naive datetime and no timezone →
+     `pre_tool_arg_validation` REWRITE that fills `start_timezone='UTC'`.
+     Anchor: ISO 8601 + tool's schema.
+   - 4 failures span different API quirks (visibility enum, defaultReminders
+     routing, freebusy items scope) → capability path: extend SYSTEM_PROMPT
+     in agent.py with one focused API cheatsheet covering all the relevant
+     gotchas. Anchor: documented API resource schemas.
+
+5. **Form ONE hypothesis** tied to a stable structure. State it in
+   `trust.evidence_anchor`.
+
+6. **Pick the path:**
+   - **One specific arg-shape error** → component on `pre_tool_arg_validation`.
+   - **Multiple API-knowledge gaps** → capability edit on `SYSTEM_PROMPT` in agent.py.
+   - **Schema-derivable validation** → component on `pre_tool_use` that reads
+     `ctx.tool_specs` and blocks with a hint; or do the schema check inline
+     in the orchestrator.
+
+7. **Validate** that the candidate dir still imports:
    ```bash
    python -c "
-   from agent.component_runtime_enterpriseops import load_components_from_dir
-   from pathlib import Path
-   comps = load_components_from_dir(
-       Path('agent/components_enterpriseops_<domain>'),
-       only=['<COMPONENT.name>'],
-   )
-   assert any(c.name == '<COMPONENT.name>' for c in comps)
-   print('ok')
+   import importlib
+   m = importlib.import_module('agent.enterpriseops.v_<domain>_<N>.agent')
+   r = importlib.import_module('agent.enterpriseops.v_<domain>_<N>.runtime')
+   print('agent OK; components:',
+         [c.name for c in r.load_components_from_dir(
+             'agent/enterpriseops/v_<domain>_<N>/components_<domain>')])
    "
    ```
-7. **Write `pending_eval.json`** and print `CANDIDATE: <name>`.
+
+8. **Write `pending_eval.json`** with the schema above and print
+   `CANDIDATE: <name>`.
 
 ## Common stabilization patterns
 
@@ -308,12 +427,12 @@ For `disable`, omit `component` and `workflow_patch.file`; only `workflow_patch.
 | inject "always pass full email in ACL scope" | mechanism_layer | `session_start` | inject_context |
 | inject domain policy reminder | mechanism_layer | `pre_prompt_build` | inject_context |
 | advisory: policy paragraph paraphrase | induced_rule | `pre_context_build` | inject_context |
-| normalise bare-local-part email to full address (RFC 5322) | mechanism_layer | `pre_tool_arg_validation` | rewrite |
-| fill missing `start_timezone='UTC'` on naive datetime (ISO 8601) | mechanism_layer | `pre_tool_arg_validation` | rewrite |
-| block tool call with missing required param | reactive_guard | `pre_tool_use` | block (skips this tool call only) |
+| normalise bare-local-part email (RFC 5322) | mechanism_layer | `pre_tool_arg_validation` | rewrite |
+| fill `start_timezone='UTC'` on naive datetime (ISO 8601) | mechanism_layer | `pre_tool_arg_validation` | rewrite |
+| schema validator: block `update_calendar(defaultReminders=…)` and hint to use `update_calendar_in_list` | mechanism_layer | `pre_tool_arg_validation` | block |
 | retry hint on MCP 4xx | reactive_guard | `on_tool_error` | inject_context |
 | length-recovery via sub-LLM with bigger budget | reactive_guard | `on_length_truncation` | rewrite via `ctx.chat(max_tokens=32768)` |
-| "use list_X with filter, don't write SQL" reminder | reactive_guard | `post_llm_response` | inject_context |
+| "use list_X with filter" reminder | reactive_guard | `post_llm_response` | inject_context |
 | refuse termination without expected DB write | reactive_guard | `on_explicit_terminate` | block |
 
 ## Custom events (Tier 2/3)
@@ -323,18 +442,25 @@ iter<N>_<slug>_<event>        e.g. iter9_acl_normalize_resolved_email
 on_<thing>                    failure-mode style
 ```
 
-Declare `emits=(...)` on the publisher; subscribers declare `listens="iter<N>_<slug>_<event>"`. To admit non-`allow` decisions on a custom event, add a string-key entry to `ALLOWED[ComponentClass.X]` in `agent/component_runtime_enterpriseops/policy.py`.
+Declare `emits=(...)` on the publisher; subscribers declare
+`listens="iter<N>_<slug>_<event>"`. To admit non-`allow` decisions on a
+custom event, add a string-key entry to `ALLOWED[ComponentClass.X]` in
+`runtime/policy.py` inside your candidate dir (since runtime is part of
+the v_N tree, edits propagate via fork).
 
 ## What this skill does NOT do
 
 - Run benchmarks (the outer loop does).
-- Register new MCP servers / tools (capability expansion — a separate workflow).
-- Modify `agent/enterpriseops_agent.py`, `agent/component_runtime_enterpriseops/`, `third_party/EnterpriseOps-Gym/`, or other domains' component dirs.
-- Memorise train-set answers (encode `scope_email = "carol.white@techcorp.com"` for any task whose user_prompt mentions "Carol").
+- Modify anything outside the candidate dir (frozen v0, other v_N dirs,
+  meta_harness, third_party).
+- Memorise train-set answers.
 - Read `ctx.verifiers` to figure out what value to write.
-- Short-circuit the agent loop (construct the entire correct sequence of MCP calls in Python).
+- Short-circuit the agent loop (construct the entire correct MCP-call
+  sequence in Python).
 - Call langchain / direct API for sub-LLM (use `ctx.chat()` instead).
-- Fire on every task (`matcher=None`, priority=0) — that's effectively a system_prompt rewrite.
-- Loop or propose multiple patches in one invocation.
-- Encode a domain policy interpretation as `mechanism_layer` override (`rewrite` / `block`). Route to `induced_rule` + `inject_context` only.
+- Fire a component on every task (`matcher=None`, priority=0) — that's
+  effectively a system_prompt rewrite; put it in `SYSTEM_PROMPT` instead.
+- Loop or propose multiple unrelated hypotheses in one invocation.
+- Encode a domain policy interpretation as `mechanism_layer` override
+  (`rewrite` / `block`). Route to `induced_rule` + `inject_context` only.
 - Encode a prompt-shape regex as `predictive_heuristic` — rejected at load.
