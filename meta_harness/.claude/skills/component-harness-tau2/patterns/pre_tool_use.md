@@ -1,23 +1,22 @@
-# Pattern: mount = `pre_tool_use`
+# Pattern: `listens="pre_tool_use"`
 
-## When to choose this mount
+## When to choose this event
 
-The LLM has emitted a `ToolCall` and you want to inspect, rewrite, or block it before the env sees it. Canonical mount for **wrap-tool** interventions: sanitise arguments, strip optional fields, enforce schema invariants, block malformed calls.
+The LLM has emitted a `ToolCall` and you want to inspect, rewrite, or block it before the env sees it. Canonical event for **wrap-tool** interventions: sanitise arguments, strip optional fields, enforce schema invariants, block malformed calls.
 
-## Which classes admit this mount
+## Which classes admit this event
 
 | class             | admitted? | decisions permitted                                       |
 |-------------------|-----------|-----------------------------------------------------------|
-| `mechanism_layer` | yes       | rewrite_tool_args, defer, block                           |
+| `mechanism_layer` | yes       | rewrite_tool_args, defer (v1: falls back to allow), block  |
 | `reactive_guard`  | yes       | block, rewrite_tool_args (after observed prior failure)   |
-| `channel`         | no        | (no content to inject mid-call)                           |
 | `induced_rule`    | no        | (no advisory-injection slot at tool dispatch)             |
 
 ## Decision semantics
 
 - `rewrite_tool_args(new_args: dict)` — replaces `tool_call.arguments` wholesale.
 - `block(reason: str)` — drops the tool_call from the assistant message. If the LLM made multiple tool calls in one turn, only the matched one is dropped.
-- `defer(replay_when)` — v1 treats as `allow` and logs.
+- `defer(replay_when)` — v1 treats as `allow` and logs. A real replay queue is v2.5+; do not design a hook whose correctness depends on real deferral.
 
 ## Wrap-tool pattern (mechanism_layer)
 
@@ -54,6 +53,6 @@ Class is `reactive_guard`, decision is `block`, matrix admits the combination.
 
 ## Common mistakes
 
-- Class = `mechanism_layer` with `decision = block` based on policy interpretation ("the policy says this tool should not be called on weekends"). Matrix admits the cell, but the matcher is interpretation-layer — the right class is `induced_rule`, which at this mount is REJECTED. Redesign: do not block; instead inject an advisory note at `pre_context_build`.
+- Class = `mechanism_layer` with `decision = block` based on policy interpretation ("the policy says this tool should not be called on weekends"). Matrix admits the cell, but the matcher is interpretation-layer — the right class is `induced_rule`, which at this event is REJECTED. Redesign: do not block; instead inject an advisory note at `pre_context_build`.
 - Matching on `ctx.task_id` (the field is hidden at fire time; the matcher always returns False).
 - Mutating `ctx.tool_call.arguments` in place. The handler must return a fresh `Decision`; the runtime is the only mutator.

@@ -1,6 +1,6 @@
-# Pattern: mount = `post_llm_response`
+# Pattern: `listens="post_llm_response"`
 
-## When to choose this mount
+## When to choose this event
 
 The LLM has emitted an `AssistantMessage` — possibly with `tool_calls` — and you want to inspect it **before** the runtime dispatches those calls. Distinct from `pre_tool_use` because the full assistant turn is visible: the LLM's reasoning text, the choice of tool, and all arguments are in one record.
 
@@ -9,13 +9,12 @@ Use cases:
 - **Self-consistency check**: detect "I will close the account" followed by `close_bank_account` with a mismatched account id (the LLM contradicting itself within one turn).
 - **Empty-turn detector**: assistant emitted neither text nor tool_calls.
 
-## Which classes admit this mount
+## Which classes admit this event
 
 | class             | admitted? | decisions permitted                                       |
 |-------------------|-----------|-----------------------------------------------------------|
 | `mechanism_layer` | yes       | rewrite_tool_args, block, inject_context                  |
 | `reactive_guard`  | yes       | rewrite_tool_args, block, inject_context                  |
-| `channel`         | no        | (no task-structure trigger after generation)              |
 | `induced_rule`    | no        | (no advisory slot post-generation; the LLM has already responded) |
 
 ## Decision semantics

@@ -1,18 +1,16 @@
 {
   "iteration": 0,
   "candidate": {
-    "name": "component_iter0_<slug>",
+    "name": "candidate_iter0_<slug>",
     "hypothesis": "<falsifiable claim about train-30 reward>",
     "mechanism": "<failure mode this targets, in one sentence>",
     "evidence_task_ids": ["task_XXX", "task_YYY", "task_ZZZ"],
-    "changes": "<plain-English diff: 'adds a pre_tool_use mechanism_layer node that strips X from close_Y's arguments'>",
+    "changes": "<plain-English diff: 'adds a pre_tool_use mechanism_layer hook that strips X from close_Y's arguments'>",
     "expected_delta": "<e.g., '+2 to +4 train-30 reward; targets 3 evidence tasks; OOE probe says: no fire on tasks lacking X'>",
     "component": {
       "id": "<stable_component_id>",
       "cls": "mechanism_layer",
-      "mount": "pre_tool_use",
-      "state_scope": "none",
-      "capabilities": ["none"],
+      "listens": "pre_tool_use",
       "file": "agent_tau2/components/<name>.py",
       "trust": {
         "evidence_anchor": "<the stable structure outside the N evidence sims>",
@@ -23,11 +21,9 @@
       }
     },
     "workflow_patch": {
-      "op": "add_node",
-      "name": "<same as component.id for add_node / replace_node; existing id for disable_node>",
-      "file": "agent_tau2/components/<name>.py",
-      "edges_in": [],
-      "edges_out": []
+      "op": "add",
+      "name": "<same as component.id for add / replace; existing id for disable>",
+      "file": "agent_tau2/components/<name>.py"
     }
   }
 }

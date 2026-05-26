@@ -6,29 +6,25 @@
     "hypothesis": "<falsifiable claim about train-30 accuracy>",
     "mechanism": "<failure mode this targets, in one sentence>",
     "evidence_task_ids": ["task_XXX", "task_YYY", "task_ZZZ"],
-    "changes": "<plain-English diff: 'adds a channel at pre_prompt_build that reads extras.file_name into the prompt'>",
-    "expected_delta": "<e.g., '+2 to +4 train-30 acc; targets 3 evidence tasks with extras.file_name set'>",
+    "changes": "<plain-English diff: e.g. 'adds a mechanism_layer at post_tool_use that summarises results > 10k chars'>",
+    "expected_delta": "<e.g., '+2 to +4 train-30 acc; targets 3 evidence tasks where oversized tool output exhausted budget'>",
     "component": {
       "id": "<stable_component_id>",
-      "cls": "channel",
-      "mount": "pre_prompt_build",
-      "state_scope": "none",
-      "capabilities": ["read_file"],
+      "cls": "mechanism_layer",
+      "listens": "post_tool_use",
       "file": "agent/components/<name>.py",
       "trust": {
         "evidence_anchor": "<stable structure outside evidence traces>",
         "blast_radius": "local",
         "rollback_when": "<observable rollback signal>",
-        "out_of_evidence_probe": "<concrete OOE case + handler return>",
+        "out_of_evidence_probe": "<concrete OOE case + handler return; REQUIRED for induced_rule>",
         "fallback": "<matcher-false / handler-allow semantics>"
       }
     },
     "workflow_patch": {
-      "op": "add_node",
-      "name": "<same as component.id for add_node / replace_node; existing id for disable_node>",
-      "file": "agent/components/<name>.py",
-      "edges_in": [],
-      "edges_out": []
+      "op": "add",
+      "name": "<same as component.id for add / replace; existing id for disable>",
+      "file": "agent/components/<name>.py"
     }
   }
 }

@@ -5,18 +5,26 @@ Mechanism
 <the failure mode this targets, in 2-4 sentences. Cite the train task ids
 where the failure was observed: [task_XXX, task_YYY, task_ZZZ].>
 
+Why this is stabilization (not capability expansion)
+----------------------------------------------------
+<one sentence: the main agent CAN do this work — it just sometimes mis-shapes
+the call / loses the answer / drifts on output format. Hooks stabilize what
+the agent already does; capability gaps (the agent CAN'T reach X) belong to
+new tools in agent/tools/, not this component.>
+
 Why this class (not the others)
 -------------------------------
 <the matcher tests <X>. <X> is a system field (e.g. extras.file_name),
-LLM API field (e.g. finish_reason), file format, or general algorithm —
-i.e. a fact independent of the N evidence traces. Therefore the class is
-<CLASS>.>
+an LLM API field (e.g. finish_reason), a tool schema, or a general
+algorithm — i.e. a fact independent of the N evidence traces. Therefore
+the class is <CLASS>.>
 
 Out-of-evidence probe
 ---------------------
-<one concrete case NOT in the evidence traces where this component's
-matcher would fire. What does the handler return on it? Why is that the
-right answer even though you have no trace covering it?>
+<REQUIRED for INDUCED_RULE; recommended for the others. One concrete case
+NOT in the evidence traces where this component's matcher would fire. What
+does the handler return on it? Why is that the right answer even though you
+have no trace covering it?>
 
 Dead-weight signal
 ------------------
@@ -26,13 +34,10 @@ Dead-weight signal
 from __future__ import annotations
 
 from agent.component_runtime.types import (
-    Capability,
     Component,
     ComponentClass,
     ComponentContext,
     Decision,
-    Mount,
-    StateScope,
     Trust,
 )
 
@@ -41,7 +46,8 @@ def _matches(ctx: ComponentContext) -> bool:
     """Return True iff this component should fire on `ctx`.
 
     Read ctx.extras / ctx.prompt / ctx.raw_response / ctx.answer /
-    ctx.shared. Do NOT read ctx.task_id (treat as opaque).
+    ctx.shared / ctx.current_tool_* (per-tool events) / ctx.current_iter.
+    Do NOT read ctx.task_id (treat as opaque).
     """
     # TODO: implement the predicate. Keep it cheap and side-effect-free.
     return False
@@ -50,7 +56,7 @@ def _matches(ctx: ComponentContext) -> bool:
 def _handler(ctx: ComponentContext) -> Decision:
     """Return the Decision when the matcher returned True.
 
-    Permitted decisions are determined by (cls, mount). See SKILL.md matrix.
+    Permitted decisions are determined by (cls, listens). See SKILL.md matrix.
     """
     # TODO: build and return the Decision.
     return Decision.allow()
@@ -58,17 +64,16 @@ def _handler(ctx: ComponentContext) -> Decision:
 
 COMPONENT = Component(
     name="<stable_component_id>",
-    cls=ComponentClass.MECHANISM_LAYER,         # or REACTIVE_GUARD / CHANNEL / INDUCED_RULE
-    mount=Mount.PRE_PROMPT_BUILD,               # see Mount enum
+    cls=ComponentClass.MECHANISM_LAYER,         # or REACTIVE_GUARD / INDUCED_RULE
+    listens="pre_prompt_build",                 # event name; see SKILL.md events table
     matcher=_matches,
     handler=_handler,
-    state_scope=StateScope.NONE,
-    capabilities=(Capability.NONE,),
     priority=100,
+    emits=(),                                   # declare custom events you raise
     trust=Trust(
         evidence_anchor=(
             "<one or two sentences naming the stable structure this component "
-            "anchors on — a system field, LLM API field, file format, or "
+            "anchors on — a system field, LLM API field, tool schema, or "
             "general algorithm. NOT a policy reading.>"
         ),
         blast_radius="local",                   # local | workflow | global

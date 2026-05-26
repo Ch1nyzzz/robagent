@@ -1,72 +1,78 @@
-# Pattern: mount = `pre_context_build`
+# Pattern: `listens="pre_context_build"`
 
-## When to choose this mount
+## When to choose this event
 
-You need to inject content into `system_prompt` whose **value depends on the session** (the current user's KB doc, a fresh retrieval, a domain-policy slice gated by the task structure). `session_start` doesn't work — its handler runs *after* `system_prompt` is frozen by `get_init_state`, so it can only append at session boundaries with no per-session conditioning.
+You need to inject content into `system_prompt` whose **value depends on the session** (a per-task framework fact, a fresh look at `ctx.domain_policy`, an advisory note paraphrased from policy). `session_start` doesn't work — its handler runs *after* the LLM's system_prompt is initially frozen at session boundaries with no per-session conditioning.
 
-`pre_context_build` fires earlier: the handler receives `ctx.domain_policy`, `ctx.tool_names`, and (for retrieval components) the raw user message. The returned `inject_context` payload is folded into `system_prompt` itself.
+`pre_context_build` fires earlier: the handler receives `ctx.domain_policy`, `ctx.tool_names`, and the raw incoming user message. The returned `inject_context` payload is folded into `system_prompt` itself for that session.
 
-## Which classes admit this mount
+**Capability-vs-stabilization check.** If you find yourself reaching for `pre_context_build` to inject content the agent could reach via a tool (a KB doc body, a file body, an API result), that is a capability gap — register a tool / sub-agent, do not stuff the content into `system_prompt`. `pre_context_build` is for *framework / advisory* injection, not for substituting tool reach.
+
+## Which classes admit this event
 
 | class             | admitted? | decision permitted          |
 |-------------------|-----------|-----------------------------|
 | `mechanism_layer` | yes       | inject_context              |
 | `reactive_guard`  | no        | (nothing to react to yet)   |
-| `channel`         | yes       | inject_context              |
 | `induced_rule`    | yes       | inject_context (advisory)   |
 
 ## Decision semantics
 
 `inject_context(text)` — `text` is appended to `system_prompt` inside a `<components_prompt_injection>` tagged block, before the LLM is initialised. Text is present on every turn of that session.
 
-## Worked example: dynamic KB retrieval channel
+## Worked example: advisory policy reminder (induced_rule)
 
 ```python
 def _matches(ctx: ComponentContext) -> bool:
-    # Fire only on sessions whose first user message mentions a KB doc id.
+    # Fire only when the user message structure suggests a closure flow is
+    # imminent; advisory note steers reading order, not the closure decision.
     msg = ctx.incoming_message
     if msg is None:
         return False
-    return bool(_DOC_PATTERN.search(getattr(msg, "content", "") or ""))
+    text = (getattr(msg, "content", "") or "").lower()
+    return "close" in text and "account" in text
 
 
 def _handler(ctx: ComponentContext) -> Decision:
-    doc_id = _DOC_PATTERN.search(ctx.incoming_message.content).group(1)
-    # sub-tool dispatch lives in the handler; the runtime imposes no
-    # capability allowlist in v1.
-    doc = ctx.shared["retriever"](doc_id)
-    return Decision.inject_context(f"<kb_doc id={doc_id}>\n{doc}\n</kb_doc>")
+    return Decision.inject_context(
+        "<advisory>\n"
+        "Account closure has documented prerequisites in the domain policy "
+        "(audit visibility, outstanding-balance checks). Consult the policy "
+        "before initiating any close_* tool call.\n"
+        "</advisory>"
+    )
 
 
 COMPONENT = Component(
-    name="kb_doc_retrieval_channel",
-    cls=ComponentClass.CHANNEL,
-    mount=Mount.PRE_CONTEXT_BUILD,
+    name="closure_prereq_advisory",
+    cls=ComponentClass.INDUCED_RULE,
+    listens="pre_context_build",
     matcher=_matches,
     handler=_handler,
     trust=Trust(
         evidence_anchor=(
-            "The KB tool's `read_kb_doc(doc_id)` schema returns the doc text "
-            "verbatim — a tool-declared schema fact, not a policy reading."
+            "Closure-prereq language paraphrases the policy doc's section on "
+            "account-closure preconditions; the advisory does not override the "
+            "LLM, it merely names the section."
         ),
         blast_radius="local",
         rollback_when=(
-            "Matcher fires but tool returns error on >50% of sessions "
-            "(KB schema changed)."
+            "Policy doc removes the closure-prereqs section OR LLM closure "
+            "success rate already at ceiling (advisory delta → 0)."
         ),
         out_of_evidence_probe=(
-            "On a session whose user message mentions doc_999 (not in any "
-            "evidence sim), the matcher fires, the tool returns the doc, and "
-            "the LLM reads it. If doc_999 does not exist, the tool returns an "
-            "error string and the LLM sees the error — no override, no risk."
+            "On a sim whose user message says 'cancel my checking account' "
+            "(not in evidence sims), the matcher fires, the advisory is "
+            "injected, the LLM still decides freely whether to close — no "
+            "override, no risk."
         ),
-        fallback="No doc id in the user message → matcher False → prompt unchanged.",
+        fallback="No 'close'+'account' tokens → matcher False → prompt unchanged.",
     ),
 )
 ```
 
 ## Common mistakes
 
-- Using `pre_context_build` with `decision=rewrite_tool_args`. The matrix rejects it — no tool call exists at this mount.
-- Using `pre_context_build` with class `induced_rule` and a long compiled rule set as the payload. Even though the matrix admits this, you are smuggling interpretation-layer code via the injection. Keep advisory injections short and structural ("doc_021 governs closures; read it before proceeding") rather than compiled IF/THEN.
-- Doing the retrieval call on every fire when the result is session-stable. Cache it in `ctx.shared` (or via `ctx.emit_upstream`) so subsequent fires in the same task short-circuit.
+- Using `pre_context_build` with `decision=rewrite_tool_args`. The matrix rejects it — no tool call exists at this event.
+- Using `pre_context_build` with class `induced_rule` and a long compiled rule set as the payload. Even when admitted, you are smuggling interpretation-layer code via the injection. Keep advisory injections short and structural ("doc_021 governs closures; read it before proceeding") rather than compiled IF/THEN.
+- Using `pre_context_build` to inject content the agent should reach via a tool (KB doc bodies, API results, file contents). That's a capability gap — register a tool, do not write a hook.

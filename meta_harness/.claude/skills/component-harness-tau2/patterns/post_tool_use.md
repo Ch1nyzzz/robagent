@@ -1,19 +1,18 @@
-# Pattern: mount = `post_tool_use`
+# Pattern: `listens="post_tool_use"`
 
-## When to choose this mount
+## When to choose this event
 
 A tool just returned. The matcher inspects `ctx.incoming_message` (a `ToolMessage`) for an observable failure or signal — `tool.failed`, an error string, a structurally surprising payload — and the handler injects a context note for the next assistant turn.
 
-## Which classes admit this mount
+## Which classes admit this event
 
 | class             | admitted? | decisions permitted          |
 |-------------------|-----------|------------------------------|
 | `mechanism_layer` | yes       | inject_context               |
 | `reactive_guard`  | yes       | inject_context               |
-| `channel`         | no        | (no task-structure signal)   |
 | `induced_rule`    | no        | (no advisory slot here)      |
 
-`post_tool_use` is the canonical mount for `reactive_guard`. The class fits because the matcher tests an observed failure event, not interpretation.
+`post_tool_use` is the canonical event for `reactive_guard`. The class fits because the matcher tests an observed failure event, not interpretation.
 
 ## Decision semantics
 
@@ -41,7 +40,7 @@ def _handler(ctx: ComponentContext) -> Decision:
 COMPONENT = Component(
     name="tool_failed_observer",
     cls=ComponentClass.REACTIVE_GUARD,
-    mount=Mount.POST_TOOL_USE,
+    listens="post_tool_use",
     matcher=_matches,
     handler=_handler,
     trust=Trust(
@@ -58,5 +57,5 @@ COMPONENT = Component(
 
 ## Common mistakes
 
-- Matching on the *content* of a non-error ToolMessage and rewriting follow-up tool args based on interpretation. That's `induced_rule` shaped as `mechanism_layer`; the matrix admits the cell but the structure is unsafe. Keep `post_tool_use` matchers focused on framework-level failure signals.
+- Matching on the *content* of a non-error ToolMessage and rewriting follow-up tool args based on interpretation. That's `induced_rule` shaped as `mechanism_layer`; the structure is unsafe even when admitted. Keep `post_tool_use` matchers focused on framework-level failure signals.
 - Injecting verbose policy text in the note. The next-turn context window is limited; keep notes structural and short.
