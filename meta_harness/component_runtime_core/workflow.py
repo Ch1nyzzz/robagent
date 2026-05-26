@@ -129,6 +129,21 @@ class PatchOp(str, Enum):
     REPLACE_NODE = "replace_node"
     DISABLE_NODE = "disable_node"
 
+    @classmethod
+    def _missing_(cls, value):
+        # SKILL docs use the short forms `add` / `replace` / `disable`;
+        # proposers sometimes emit those literal strings. Map them to the
+        # canonical enum members so Patch.from_dict accepts both vocabularies.
+        if isinstance(value, str):
+            alias = {
+                "add": cls.ADD_NODE,
+                "replace": cls.REPLACE_NODE,
+                "disable": cls.DISABLE_NODE,
+            }.get(value.strip().lower())
+            if alias is not None:
+                return alias
+        return None
+
 
 @dataclass(frozen=True)
 class Patch:

@@ -53,7 +53,7 @@ FRONTIER_VAL: Path
 FRONTIER_WORKFLOW: Path
 EVOLUTION_SUMMARY: Path
 
-PROPOSER_MODEL = os.environ.get("MH_PROPOSER_MODEL", "sonnet")
+PROPOSER_MODEL = os.environ.get("MH_PROPOSER_MODEL", "opus")
 PROPOSER_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write", "Bash"]
 
 
