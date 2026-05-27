@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>robagent · lifecycle-event stabilization of LLM agents</title>
+<style>
+  :root {
+    --bg: #f5f5f5;
+    --panel: #ffffff;
+    --ink: #1d1d1f;
+    --ink-soft: #4a4a4f;
+    --ink-mute: #6e6e73;
+    --line: #e5e5ea;
+    --line-strong: #d2d2d7;
+    --accent: #0a5cd4;
+    --accent-soft: #e9f1ff;
+    --code-bg: #f0f0f3;
+    --good: #1f7a3a;
+    --bad:  #b3261e;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+            "Microsoft YaHei", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, kbd, samp { font-family: var(--mono); font-size: 13.5px; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  code:not(pre code) {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.92em;
+  }
+  /* layout */
+  .wrap {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 880px);
+    gap: 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  nav.toc {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13.5px;
+    border-right: 1px solid var(--line);
+    padding-right: 18px;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+  }
+  nav.toc .brand {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    font-size: 15px;
+    margin-bottom: 14px;
+    display: block;
+  }
+  nav.toc .brand .v { color: var(--ink-mute); font-weight: 500; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol > li { counter-increment: tocnum; margin: 6px 0; }
+  nav.toc ol > li > a::before {
+    content: counter(tocnum) ". ";
+    color: var(--ink-mute);
+    font-variant-numeric: tabular-nums;
+    margin-right: 2px;
+  }
+  nav.toc a {
+    color: var(--ink-soft);
+    display: block;
+    padding: 2px 0;
+  }
+  nav.toc a:hover { color: var(--accent); text-decoration: none; }
+  nav.toc ul { list-style: none; padding-left: 16px; margin: 4px 0; }
+  nav.toc ul a { color: var(--ink-mute); font-size: 12.8px; }
+  /* main */
+  main {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 36px 44px 56px;
+  }
+  h1 {
+    font-size: 30px;
+    line-height: 1.25;
+    margin: 0 0 6px;
+    letter-spacing: -0.015em;
+  }
+  h1 .tag {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-mute);
+    display: block;
+    font-weight: 500;
+    letter-spacing: 0;
+    margin-bottom: 4px;
+  }
+  h2 {
+    font-size: 20px;
+    margin: 44px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+    letter-spacing: -0.01em;
+  }
+  h3 { font-size: 16px; margin: 28px 0 8px; }
+  h4 { font-size: 14px; margin: 18px 0 6px; color: var(--ink-soft); }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .lede {
+    color: var(--ink-soft);
+    font-size: 16px;
+    margin: 14px 0 24px;
+  }
+  .meta {
+    color: var(--ink-mute);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    margin-top: 10px;
+  }
+  .meta a { color: var(--ink-mute); }
+  /* tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin: 10px 0 16px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  thead th {
+    background: #fafafa;
+    border-bottom: 1px solid var(--line-strong);
+    font-weight: 600;
+    color: var(--ink);
+    font-size: 12.5px;
+  }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+  td .delta-pos { color: var(--good); font-weight: 600; }
+  td .delta-low { color: var(--ink-mute); }
+  td .delta-flat { color: var(--ink-mute); }
+  /* callout */
+  .callout {
+    background: var(--accent-soft);
+    border: 1px solid #c7dcff;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  .callout strong { color: var(--accent); }
+  .note {
+    border-left: 3px solid var(--line-strong);
+    padding: 4px 14px;
+    color: var(--ink-soft);
+    margin: 12px 0;
+    background: #fafafa;
+    font-size: 14px;
+  }
+  /* event grid */
+  .events {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 14px 0 18px;
+  }
+  .events .group {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: #fcfcfd;
+  }
+  .events h4 {
+    margin: 0 0 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .events code { background: transparent; border: none; padding: 0; color: var(--ink); }
+  .events ul { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; }
+  /* mech diagram */
+  .diagram {
+    background: #fafafa;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--ink-soft);
+  }
+  footer {
+    margin-top: 60px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-mute);
+    font-size: 12.5px;
+    font-family: var(--mono);
+  }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: 1fr; }
+    nav.toc { position: static; border-right: none; border-bottom: 1px solid var(--line); padding: 0 0 12px; max-height: none; }
+    main { padding: 28px 22px; }
+    .events { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc" aria-label="目录">
+  <a class="brand" href="#top">robagent <span class="v">/ docs</span></a>
+  <ol>
+    <li><a href="#tldr">TL;DR</a></li>
+    <li><a href="#results">实验结果</a>
+      <ul>
+        <li><a href="#results-sop">SOPbench</a></li>
+        <li><a href="#results-eops">EnterpriseOps</a></li>
+        <li><a href="#results-gaia">GAIA</a></li>
+      </ul>
+    </li>
+    <li><a href="#system">系统三层</a></li>
+    <li><a href="#lifecycle">Lifecycle 订阅机制</a>
+      <ul>
+        <li><a href="#why">为什么是 hook，不是 graph node</a></li>
+        <li><a href="#events">Lifecycle events</a></li>
+        <li><a href="#component">Component dataclass</a></li>
+        <li><a href="#decision">Decision 协议</a></li>
+        <li><a href="#policy">Admission matrix</a></li>
+        <li><a href="#example">完整 component 示例</a></li>
+      </ul>
+    </li>
+    <li><a href="#diff">与其他范式的差异</a></li>
+    <li><a href="#repro">复现</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+
+<h1>
+  <span class="tag">robagent · 2026-05-27</span>
+  Lifecycle-event stabilization of LLM agents
+</h1>
+<p class="lede">
+  一个 LLM 主 agent 在外，N 个挂在生命周期事件上的 stabilization hook 在内。
+  外层用一个 coding agent 自动迭代这些 hook —— 在 SOPbench、EnterpriseOps、GAIA 上
+  各跑 10 iter，最高在 SOPbench/dangerous_goods 把 held-out test 从 72.95% 推到 96.31%。
+</p>
+<p class="meta">repo: <a href="https://github.com/Ch1nyzzz/robagent">github.com/Ch1nyzzz/robagent</a> · SUT: deepseek-v4-pro / deepseek-chat / deepseek-v4-flash · proposer: claude-opus</p>
+
+<!-- ============================================================== -->
+<h2 id="tldr">TL;DR</h2>
+<p>
+  主流"agent 系统"要么是 <em>一个 LLM 在 while-loop 里改进自己</em>，要么是
+  <em>一张静态的 multi-agent graph</em>。两者都把 LLM 当作不可分割的黑箱。
+  robagent 的赌注是第三条路：
+</p>
+<ol>
+  <li>把 capability（能不能做到）和 stabilization（做了能不能稳）严格分开。</li>
+  <li>capability 长在主 agent 上（工具 / FC loop / system prompt）。</li>
+  <li>stabilization 用 <strong>挂在生命周期事件上的小钩子</strong> 实现 ——
+      每个 hook 是一个 Python 文件，订阅一个 event，返回一个 Decision。</li>
+  <li>外层用一个 coding agent (Claude Opus) 自动写、自动评、自动接纳这些 hook。</li>
+</ol>
+<p>
+  下面先给三组 benchmark 的结果，再讲为什么是 lifecycle event 而不是别的形态。
+</p>
+
+<!-- ============================================================== -->
+<h2 id="results">实验结果</h2>
+<p>
+  统一口径：每个 benchmark 取 train-30 跑 10 iter 进化循环，
+  candidate 接纳的判据是 per-task best union ≥ frontier；最后在 held-out test
+  上跑一次 frontier 与 v0 baseline 的对照。
+</p>
+
+<table>
+  <colgroup>
+    <col><col><col><col><col><col><col>
+  </colgroup>
+  <thead>
+    <tr>
+      <th>benchmark / 域</th>
+      <th>SUT</th>
+      <th class="num">train v0</th>
+      <th class="num">train frontier</th>
+      <th class="num">test v0</th>
+      <th class="num">test frontier</th>
+      <th class="num">Δ test</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr id="results-sop"><td colspan="7" style="background:#fafafa; font-weight:600; color:var(--ink-soft); font-size:12.5px; text-transform:uppercase; letter-spacing:0.04em;">SOPbench (deepseek-v4-pro)</td></tr>
+    <tr>
+      <td>dangerous_goods</td>
+      <td>v4-pro</td>
+      <td class="num">20/30 · 66.7%</td>
+      <td class="num">30/30 · 100.0%</td>
+      <td class="num">178/244 · 72.95%</td>
+      <td class="num">235/244 · 96.31%</td>
+      <td class="num"><span class="delta-pos">+23.4 pp</span></td>
+    </tr>
+    <tr>
+      <td>traffic_spoofing_detection</td>
+      <td>v4-pro</td>
+      <td class="num">12/30 · 40.0%</td>
+      <td class="num">23/30 · 76.7%</td>
+      <td class="num">97/170 · 57.06%</td>
+      <td class="num">135/170 · 79.41%</td>
+      <td class="num"><span class="delta-pos">+22.4 pp</span></td>
+    </tr>
+    <tr>
+      <td>warehouse_package_inspection</td>
+      <td>v4-pro</td>
+      <td class="num">14/30 · 46.7%</td>
+      <td class="num">26/30 · 86.7%</td>
+      <td class="num">61/120 · 50.83%</td>
+      <td class="num">86/120 · 71.67%</td>
+      <td class="num"><span class="delta-pos">+20.8 pp</span></td>
+    </tr>
+
+    <tr id="results-eops"><td colspan="7" style="background:#fafafa; font-weight:600; color:var(--ink-soft); font-size:12.5px; text-transform:uppercase; letter-spacing:0.04em;">EnterpriseOps (deepseek-chat · dockerized MCP gym · SQL verifier)</td></tr>
+    <tr>
+      <td>calendar</td>
+      <td>v4-chat</td>
+      <td class="num">11/30 · 36.7%</td>
+      <td class="num">22/30 · 73.3%</td>
+      <td class="num">6/31 · 19.35%</td>
+      <td class="num">7/31 · 22.58%</td>
+      <td class="num"><span class="delta-low">+3.2 pp</span></td>
+    </tr>
+    <tr>
+      <td>itsm</td>
+      <td>v4-chat</td>
+      <td class="num">10/30 · 33.3%</td>
+      <td class="num">16/30 · 53.3%</td>
+      <td class="num">23/73 · 31.51%</td>
+      <td class="num">26/73 · 35.62%</td>
+      <td class="num"><span class="delta-low">+4.1 pp</span></td>
+    </tr>
+
+    <tr id="results-gaia"><td colspan="7" style="background:#fafafa; font-weight:600; color:var(--ink-soft); font-size:12.5px; text-transform:uppercase; letter-spacing:0.04em;">GAIA (deepseek-v4-flash · FC loop + 4 tools)</td></tr>
+    <tr>
+      <td>gaia (text)</td>
+      <td>v4-flash</td>
+      <td class="num">16/30 · 53.3%</td>
+      <td class="num">25/30 · 83.3%</td>
+      <td class="num">—</td>
+      <td class="num">65/135 · 48.2%</td>
+      <td class="num"><span class="delta-flat">n/a</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <strong>读这张表的方式。</strong>
+  SOPbench 的 +20pp 是干净的泛化收益：单 domain 的 SOP 结构稳定，
+  hook 抓到的是 schema / 终态枚举 / 阈值，train↔test 几乎不掉点。
+  EnterpriseOps 上 train 涨 +20~37 pp、test 只涨 +3~4 pp ——
+  典型的"hook 记住了 train verifier 形状"。GAIA 的 v0 test 跑过但没单独留单
+  （baseline 与 frontier 共享同一份 FC loop），所以 Δ test 不可比。
+</div>
+
+<h4>iteration 走向（被 accept 的 hook）</h4>
+<ul>
+  <li><strong>SOPbench/dangerous_goods</strong> · 2/4 accept：
+    <code>final_xml_recovery</code>（XML 兜底）→
+    <code>hazard_threshold_advisory</code>（阈值 → 推到 train 30/30）。
+  </li>
+  <li><strong>SOPbench/traffic_spoofing</strong> · 8/10 accept：
+    <code>sop_completion_checklist</code> → <code>final_emit_recovery</code> →
+    <code>verbatim_sop_channel</code> → <code>conclusive_evidence_gate</code> 等。
+  </li>
+  <li><strong>SOPbench/warehouse</strong> · 10/10 accept：
+    <code>resolution_status_output_spec</code> →
+    <code>input_evidence_status_check</code> →
+    <code>barcode_image_decode_override</code> →
+    <code>iter5_respect_sop_511_short_circuit</code>。
+  </li>
+  <li><strong>EnterpriseOps/calendar</strong> · 3/10 accept：
+    <code>gcal_api_cheatsheet</code>（capability path）→
+    <code>event_time_reading_rule</code> →
+    <code>create_event_idempotence</code>；剩下 6 个 iter 全 reject。
+  </li>
+  <li><strong>EnterpriseOps/itsm</strong> · 4/8 accept：
+    <code>priority_matrix_fill</code> →
+    <code>itsm_api_cheatsheet</code> →
+    <code>notification_report_verb_and_id_ref</code> →
+    <code>use_its_id_regex_fix</code>。
+  </li>
+  <li><strong>GAIA</strong> · 4/10 accept：
+    <code>exhaustion_answer_recovery</code> →
+    <code>final_turn_commit_notice</code> →
+    <code>length_recovery_with_history</code> →
+    <strong><code>answer_markdown_strip</code></strong>（单步 +4，flash 模型经常给
+    <code>**5**</code>，strip 一下立刻回正）。
+  </li>
+</ul>
+
+<!-- ============================================================== -->
+<h2 id="system">系统三层</h2>
+<p>
+  全部 5 个 sibling（GAIA / SOPbench × 3 / EnterpriseOps × 2 / tau2 / Toolathlon）
+  共用同一个骨架，只换 SUT、lifecycle event 集合、和 proposer SKILL.md：
+</p>
+
+<pre class="diagram">  ┌──────────────────────────────────────────────────────────────────┐
+  │  Outer evolution loop  ·  meta_harness/meta_harness_components_*.py
+  │                                                                  │
+  │   propose → apply patch → run train-30 → accept/reject → log     │
+  │      ▲                                                  │        │
+  │      │ proposer (claude-opus, in docker)                ▼        │
+  │      └────── frontier workflow.yaml / per-task best ────┘        │
+  └──────────────────────────────────────────────────────────────────┘
+                              │  reads workflow yaml
+                              ▼
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  Component runtime  ·  agent/component_runtime{,_sopbench}/       │
+  │                                                                  │
+  │   Dispatcher  ←  events  ←  main agent loop                      │
+  │       │                                                          │
+  │       └─ Component(listens=…, matcher, handler) → Decision       │
+  │           ╲                                                      │
+  │            ╲  policy.py (class × event × decision matrix)        │
+  │             ╲ rejects unsafe combinations at load time           │
+  └──────────────────────────────────────────────────────────────────┘
+                              │  emits lifecycle events
+                              ▼
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  Main agent (the protagonist)  ·  agent/base.py, …               │
+  │   FC loop / React loop, locked SUT model, real tool catalog.     │
+  │   THIS is where capability lives — never inside hooks.           │
+  └──────────────────────────────────────────────────────────────────┘</pre>
+
+<p>三层职责严格不重叠：</p>
+<ul>
+  <li><strong>主 agent</strong>：拥有 tools，跑 FC / React loop，是真正在解题的那一个。</li>
+  <li><strong>Component runtime</strong>：在 loop 的每个生命周期点 fire 一次 dispatcher，
+      允许 hook 改 <code>ctx</code>，但 admission matrix 在 load 时就拒掉非法的"改 LLM 决定"。</li>
+  <li><strong>Outer loop</strong>：迭代 hook 集合，accept/reject 依据是 train-30 表现；
+      proposer 跑在 docker 里和 main loop 隔离。</li>
+</ul>
+
+<!-- ============================================================== -->
+<h2 id="lifecycle">Lifecycle 订阅机制</h2>
+<p>
+  这是 robagent 区别于其他 agent framework 的核心。下面四节按
+  <em>为什么 → 有哪些 event → 怎么写 hook → 怎么被拒</em> 的顺序展开。
+</p>
+
+<h3 id="why">为什么是 hook，不是 graph node</h3>
+
+<p>
+  大多数 "agentic framework" 用 graph：node 是 LLM call 或 tool call，edge 是 message。
+  这套范式下，要让某个失败模式不再发生，唯一手段是 <em>插一个新 node 截走流量</em> ——
+  问题是 node 会接管"做决定"的位置，把主 agent 稀释成 LLM oracle。
+</p>
+<p>
+  robagent 用 hook：主 agent 该跑的还是跑，hook 只在 <strong>已经发生的事件</strong>
+  上插一脚。每个事件都对应主 agent loop 里一个具体的代码位置，dispatcher
+  在那里 fire 一次，订阅了这个事件的 component 按 priority 排队跑，
+  返回的 Decision 改 <code>ctx</code>。
+</p>
+
+<div class="note">
+  关键约束：hook 永远不能"成为主 agent"。<code>induced_rule</code> 类 component
+  在 admission matrix 里只允许 <code>inject_context</code>，
+  不能 <code>rewrite</code> / <code>block</code>。
+  这把"机械地代替 LLM 做决定"这条退化路径在 load 时切断。
+</div>
+
+<h3 id="events">Lifecycle events</h3>
+
+<p>
+  以 GAIA runtime 为例。事件按 fire 频次分四组：
+</p>
+
+<div class="events">
+  <div class="group">
+    <h4>per-task setup · once per task</h4>
+    <ul>
+      <li><code>task_received</code></li>
+      <li><code>session_start</code></li>
+      <li><code>pre_prompt_build</code> / <code>pre_context_build</code></li>
+      <li><code>pre_agent_construct</code></li>
+    </ul>
+  </div>
+  <div class="group">
+    <h4>per-turn · once per FC turn</h4>
+    <ul>
+      <li><code>pre_llm_request</code></li>
+      <li><code>post_llm_response</code></li>
+      <li><code>on_length_truncation</code> <small>(finish_reason=="length")</small></li>
+      <li><code>on_empty_response</code> <small>(空 content + 无 tool_calls)</small></li>
+    </ul>
+  </div>
+  <div class="group">
+    <h4>per-tool-call · once per tool</h4>
+    <ul>
+      <li><code>pre_tool_use</code> · rewrite tool args / block this call</li>
+      <li><code>post_tool_use</code> · rewrite result / inject note</li>
+      <li><code>on_tool_error</code> · 当 tool result 以 ERROR: 开头时合成</li>
+    </ul>
+  </div>
+  <div class="group">
+    <h4>per-task exit · once per task</h4>
+    <ul>
+      <li><code>pre_answer_emit</code> · 最后一道闸：normalise / block</li>
+      <li><code>session_end</code></li>
+    </ul>
+  </div>
+</div>
+
+<p>
+  其他 sibling 各有自己的事件集（tau2 包含 <code>pre_tool_use</code> /
+  <code>post_tool_use</code> / sub-LLM verifier 的 <code>post_llm_response</code>；
+  Toolathlon 把 OpenAI Agents SDK 的 Runner 包装成同一套；EnterpriseOps
+  在 React loop 的 <code>pre_tool_arg_validation</code> 点 fire），
+  但形状是一样的：<em>fire 点对齐主 agent 真实的执行位置</em>。
+</p>
+
+<p>跨 sibling 共享：</p>
+<ul>
+  <li><code>meta_harness/component_runtime_core/dispatcher.py</code>：单进程 Dispatcher，<code>_depth</code> 使用 <code>threading.local()</code>（早期 race 已修）。</li>
+  <li><code>meta_harness/component_runtime_core/event_context.py</code>：<code>EventContext</code> 拥有
+    <code>ctx.chat()</code> / <code>ctx.emit()</code> / shared scratchpads /
+    <code>blocked</code> 信号。</li>
+  <li><code>shared_types.py</code>：<code>ComponentClass</code> 与 <code>Trust</code> 跨 sibling 字节相等，只保留一份。</li>
+</ul>
+
+<h3 id="component">Component dataclass</h3>
+
+<pre><code>@dataclass(frozen=True, kw_only=True)
+class Component:
+    name: str                        # 稳定 id，replace 时复用
+    cls: ComponentClass              # mechanism_layer | reactive_guard | induced_rule
+    listens: str                     # event 名；dispatcher 按这个路由
+    matcher: Optional[Callable[[Ctx], bool]]
+    handler: Callable[[Ctx], Decision]
+    trust: Trust                     # 必填：evidence_anchor + out_of_evidence_probe
+    priority: int = 100              # 同 event bucket 内小的先 fire
+    emits: tuple[str, ...] = ()      # 自声明会 emit 的自定义 event</code></pre>
+
+<p>每个 component 是一个独立 .py 文件，文件末尾导出 <code>COMPONENT: Component</code>。
+工作流 YAML 只记 component 名字列表：</p>
+
+<pre><code># meta_harness/workflows/gaia_main.yaml
+nodes:
+  - length_recovery_guard
+  - cuneiform_numeric_decoder
+  - exhaustion_answer_recovery
+  - final_turn_commit_notice
+  - answer_markdown_strip
+edges: []
+disabled: []</code></pre>
+
+<h3 id="decision">Decision 协议</h3>
+
+<p>handler 返回的 Decision 是一个小 ADT。语义随 event 决定，全部在 dispatcher 中央处理：</p>
+
+<table>
+  <thead>
+    <tr><th>kind</th><th>typical use</th><th>payload 在不同 event 上的含义</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>allow</code></td><td>不动</td><td>—</td></tr>
+    <tr><td><code>block</code></td><td>终止本步</td><td>pre_tool_use: 跳过该 tool；pre_answer_emit: ctx.answer ← None</td></tr>
+    <tr><td><code>rewrite</code></td><td>替换 live payload</td>
+      <td>pre_prompt_build: 新 prompt 字符串<br/>
+          post_llm_response / on_length_truncation: 新 raw content<br/>
+          pre_tool_use: 新 args dict<br/>
+          post_tool_use / on_tool_error: 新 result 字符串<br/>
+          pre_answer_emit: 新 final answer</td></tr>
+    <tr><td><code>inject_context</code></td><td>叠加，不覆盖</td>
+      <td>PRE-event: 追加进 system prompt；POST-event: 拼到 result 末尾让 LLM 下一 turn 看到</td></tr>
+  </tbody>
+</table>
+
+<h3 id="policy">Admission matrix</h3>
+<p>load 时校验，不合法的组合直接拒掉，不到 evaluation 阶段：</p>
+
+<table>
+  <thead>
+    <tr><th>class</th><th>它代表</th><th>允许的 Decision</th><th>禁止</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>mechanism_layer</code></td><td>把 LLM 在做的确定性活儿搬进 Python（输出规整、参数 schema 校验）</td><td>allow / rewrite / block</td><td>—</td></tr>
+    <tr><td><code>reactive_guard</code></td><td>对观察到的失败做反应（length 截断、empty、tool error）</td><td>allow / rewrite / inject_context</td><td>—</td></tr>
+    <tr><td><code>induced_rule</code></td><td>从历史 trace 总结的策略提示</td><td><strong>仅</strong> inject_context</td><td>rewrite / block <em>← 这条切断了"hook 接管 LLM"的退化路径</em></td></tr>
+  </tbody>
+</table>
+
+<p>另外每个 component 必填一个 <code>Trust</code>：</p>
+<ul>
+  <li><strong>evidence_anchor</strong>：handler 依据什么稳定结构而不是某个 train trace。
+      合法 anchor：tool 的 JSON schema、LLM API 的 <code>finish_reason</code> 字段、
+      SOP 文档里的硬阈值、明确的字符串协议。</li>
+  <li><strong>out_of_evidence_probe</strong>：当 matcher 命中、但 anchor 不成立时，
+      handler 必须有的 fall-through 行为（一般是 <code>Decision.allow()</code>）。</li>
+</ul>
+
+<h3 id="example">完整 component 示例</h3>
+
+<p>
+  这是 GAIA iter8 接纳的 <code>answer_markdown_strip</code> —— 在 train-30 单步 +4 task，
+  全文 30 多行：
+</p>
+
+<pre><code>"""Strip markdown wrappers around final answer.
+
+flash 经常给 'FINAL ANSWER: **5**' 或反引号包裹的答案。
+mechanism_layer · pre_answer_emit · rewrite ctx.answer。
+"""
+from __future__ import annotations
+import re
+
+from agent.component_runtime.types import (
+    Component, ComponentClass, Decision, Trust,
+)
+
+_WRAPPERS = [
+    (re.compile(r"^\*\*(.+?)\*\*$", re.S), 1),  # **x**
+    (re.compile(r"^`(.+?)`$",       re.S), 1),  # `x`
+    (re.compile(r"^_(.+?)_$",       re.S), 1),  # _x_
+]
+
+def _matcher(ctx) -> bool:
+    return bool(ctx.answer) and any(p.match(ctx.answer.strip()) for p, _ in _WRAPPERS)
+
+def _handler(ctx) -> Decision:
+    s = ctx.answer.strip()
+    for pat, g in _WRAPPERS:
+        m = pat.match(s)
+        if m:
+            return Decision.rewrite(m.group(g).strip())
+    return Decision.allow()
+
+COMPONENT = Component(
+    name="answer_markdown_strip",
+    cls=ComponentClass.mechanism_layer,
+    listens="pre_answer_emit",
+    matcher=_matcher,
+    handler=_handler,
+    trust=Trust(
+        evidence_anchor="FINAL ANSWER format spec in agent/base.py SYSTEM_PROMPT; "
+                        "markdown bold/italic/code wrappers are a stable Markdown surface, "
+                        "not a train-specific artifact.",
+        out_of_evidence_probe="if no wrapper matches, return allow() — original "
+                              "answer is preserved verbatim.",
+    ),
+    priority=80,
+)</code></pre>
+
+<p>
+  关注几件事：handler 没有调 LLM；evidence_anchor 锚在 markdown 语法本身而不是
+  "我在 train trace 里见过这 4 个 task"；out_of_evidence_probe 保证 matcher 出错时
+  不会破坏原答案。这是被反复强调的 first principle ——
+  <em>code 因为捕捉到稳定结构而留下，不因为拟合最近的失败而留下</em>。
+</p>
+
+<!-- ============================================================== -->
+<h2 id="diff">与其他范式的差异</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>LangGraph / 经典 multi-agent</th>
+      <th>auto-prompt / DSPy 优化器</th>
+      <th>robagent</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>主控位置</td>
+      <td>graph 上某个 router node 里的 LLM</td>
+      <td>编译期决定，运行期固定</td>
+      <td>主 agent 的 FC loop；hook 不抢主控</td>
+    </tr>
+    <tr>
+      <td>扩能力 vs 稳能力</td>
+      <td>混在一起（都靠加 node）</td>
+      <td>都通过改 prompt</td>
+      <td>显式分开，admission matrix 强制</td>
+    </tr>
+    <tr>
+      <td>修一个 bug 的形态</td>
+      <td>加 / 改一个 node + edge</td>
+      <td>重新跑一次 compile</td>
+      <td>加一个文件 + workflow yaml 加一行</td>
+    </tr>
+    <tr>
+      <td>评估单位</td>
+      <td>整图</td>
+      <td>整 pipeline</td>
+      <td>单 hook 的 train-30 Δ</td>
+    </tr>
+    <tr>
+      <td>"LLM 兜底"被允许吗</td>
+      <td>是 — graph 上的 LLM node 默认 unconstrained</td>
+      <td>是 — prompt 可以无限膨胀</td>
+      <td>仅在 <code>reactive_guard</code> 上、并且必须有 evidence_anchor</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================================== -->
+<h2 id="repro">复现</h2>
+
+<pre><code># 1) baseline
+python run_benchmark.py gaia --agent-version v0
+
+# 2) 10-iter 进化（GAIA）
+python meta_harness/meta_harness_components_gaia.py \
+    --iterations 10 --train-parallel 32 --final-test
+
+# 3) SOPbench / EnterpriseOps 同理，换 entry：
+python meta_harness/meta_harness_components_sopbench.py \
+    --domain dangerous_goods --iterations 10
+python meta_harness/meta_harness_components_enterpriseops.py \
+    --domain calendar --iterations 10</code></pre>
+
+<p>实验状态文件：</p>
+<ul>
+  <li><code>meta_harness/logs_components_&lt;bench&gt;/evolution_summary.jsonl</code> — 每 iter 一行（iteration / agent / hypothesis / train_score / test_score / frontier_after / accepted）</li>
+  <li><code>meta_harness/logs_components_&lt;bench&gt;/frontier_val.json</code> — per-task 当前 best agent</li>
+  <li><code>meta_harness/workflows/&lt;bench&gt;_main.yaml</code> — 当前 frontier 的 component 列表</li>
+</ul>
+
+<footer>
+  robagent · single-page docs · 2026-05-27 ·
+  <a href="https://github.com/Ch1nyzzz/robagent">source on github</a>
+</footer>
+
+</main>
+</div>
+</body>
+</html>
