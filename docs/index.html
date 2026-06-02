@@ -435,7 +435,7 @@
 </p>
 
 <pre class="diagram">  ┌──────────────────────────────────────────────────────────────────┐
-  │  Outer evolution loop  ·  meta_harness/meta_harness_components_*.py
+  │  Outer evolution loop  ·  ballast/evolve_tau2_*.py
   │                                                                  │
   │   propose → apply patch → run train-30 → accept/reject → log     │
   │      ▲                                                  │        │
@@ -551,8 +551,8 @@
 
 <p>跨 sibling 共享：</p>
 <ul>
-  <li><code>meta_harness/component_runtime_core/dispatcher.py</code>：单进程 Dispatcher，<code>_depth</code> 使用 <code>threading.local()</code>（早期 race 已修）。</li>
-  <li><code>meta_harness/component_runtime_core/event_context.py</code>：<code>EventContext</code> 拥有
+  <li><code>ballast/component_runtime_core/dispatcher.py</code>：单进程 Dispatcher，<code>_depth</code> 使用 <code>threading.local()</code>（早期 race 已修）。</li>
+  <li><code>ballast/component_runtime_core/event_context.py</code>：<code>EventContext</code> 拥有
     <code>ctx.chat()</code> / <code>ctx.emit()</code> / shared scratchpads /
     <code>blocked</code> 信号。</li>
   <li><code>shared_types.py</code>：<code>ComponentClass</code> 与 <code>Trust</code> 跨 sibling 字节相等，只保留一份。</li>
@@ -574,7 +574,7 @@ class Component:
 <p>每个 component 是一个独立 .py 文件，文件末尾导出 <code>COMPONENT: Component</code>。
 工作流 YAML 只记 component 名字列表：</p>
 
-<pre><code># meta_harness/workflows/gaia_main.yaml
+<pre><code># ballast/workflows/gaia_main.yaml
 nodes:
   - length_recovery_guard
   - cuneiform_numeric_decoder
@@ -741,20 +741,20 @@ COMPONENT = Component(
 python run_benchmark.py gaia --agent-version v0
 
 # 2) 10-iter 进化（GAIA）
-python meta_harness/meta_harness_components_gaia.py \
+python ballast/evolve_gaia.py \
     --iterations 10 --train-parallel 32 --final-test
 
 # 3) SOPbench / EnterpriseOps 同理，换 entry：
-python meta_harness/meta_harness_components_sopbench.py \
+python ballast/evolve_sopbench.py \
     --domain dangerous_goods --iterations 10
-python meta_harness/meta_harness_components_enterpriseops.py \
+python ballast/evolve_enterpriseops.py \
     --domain calendar --iterations 10</code></pre>
 
 <p>实验状态文件：</p>
 <ul>
-  <li><code>meta_harness/logs_components_&lt;bench&gt;/evolution_summary.jsonl</code> — 每 iter 一行（iteration / agent / hypothesis / train_score / test_score / frontier_after / accepted）</li>
-  <li><code>meta_harness/logs_components_&lt;bench&gt;/frontier_val.json</code> — per-task 当前 best agent</li>
-  <li><code>meta_harness/workflows/&lt;bench&gt;_main.yaml</code> — 当前 frontier 的 component 列表</li>
+  <li><code>ballast/logs_components_&lt;bench&gt;/evolution_summary.jsonl</code> — 每 iter 一行（iteration / agent / hypothesis / train_score / test_score / frontier_after / accepted）</li>
+  <li><code>ballast/logs_components_&lt;bench&gt;/frontier_val.json</code> — per-task 当前 best agent</li>
+  <li><code>ballast/workflows/&lt;bench&gt;_main.yaml</code> — 当前 frontier 的 component 列表</li>
 </ul>
 
 <footer>

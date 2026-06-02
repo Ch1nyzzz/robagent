@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from meta_harness.component_runtime_core.registry import load_module_from_path
+from ballast.component_runtime_core.registry import load_module_from_path
 
 from .policy import validate_registration, validate_trust
 from .types import Component

@@ -13,12 +13,12 @@ Five classes; identical risk semantics to the tau2 component runtime:
 
 The matrix is keyed by `(class, event_name)` where `event_name` is the
 string the dispatcher routes on (= `Component.listens`). The validator
-logic lives in `meta_harness.component_runtime_core.policy`; this module
+logic lives in `ballast.component_runtime_core.policy`; this module
 just supplies the GAIA-specific ALLOWED data.
 """
 from __future__ import annotations
 
-from meta_harness.component_runtime_core.policy import (  # noqa: F401
+from ballast.component_runtime_core.policy import (  # noqa: F401
     ComponentPolicyError,
     validate_decision as _core_validate_decision,
     validate_registration as _core_validate_registration,

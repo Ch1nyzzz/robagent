@@ -35,9 +35,9 @@ mechanically override the LLM).
 ## How it works
 
 ```
-meta_harness/                            outer evolution loops
-  ├─ meta_harness_components.py          tau2 graph evolution
-  ├─ meta_harness_components_gaia.py     GAIA graph evolution
+ballast/                            outer evolution loops
+  ├─ evolve_tau2.py          tau2 graph evolution
+  ├─ evolve_gaia.py     GAIA graph evolution
   ├─ workflows/                          frontier workflow YAML
   └─ .claude/skills/
        ├─ component-harness-tau2/        proposer SKILL.md for tau2
@@ -111,15 +111,15 @@ pip install -r requirements.txt
 python run_benchmark.py gaia --agent-version v0
 
 # GAIA 20-iter graph evolution + final test on test-135
-python meta_harness/meta_harness_components_gaia.py \
+python ballast/evolve_gaia.py \
     --iterations 20 --train-parallel 8 --test-parallel 8 --final-test
 
 # tau2 baseline (v0) on banking_knowledge
 python tau2_runner.py --candidate v0 --domain banking_knowledge \
-    --task-ids-file meta_harness/tau2_train_task_ids.txt --max-concurrency 8
+    --task-ids-file ballast/tau2_train_task_ids.txt --max-concurrency 8
 
 # tau2 20-iter graph evolution (Together AI endpoint, Opus builder)
 TAU2_LLM_ENDPOINT=together MH_PROPOSER_MODEL=opus \
-python meta_harness/meta_harness_components.py \
+python ballast/evolve_tau2.py \
     --iterations 20 --train-parallel 8
 ```

@@ -247,7 +247,7 @@ banking_knowledge 的失败模式是 interpretation-bound（policy reasoning：d
 
 ## 7. 复制实验的关键数字（事实层）
 
-- builder：Claude Opus 4.7（默认 thinking off），meta_harness/.claude/skills/{robust-harness-tau2, meta-harness-tau2}
+- builder：Claude Opus 4.7（默认 thinking off），ballast/.claude/skills/{robust-harness-tau2, meta-harness-tau2}
 - eval：DeepSeek V4-Pro，thinking 关，agent 和 user-simulator 都用同一模型
 - domain：tau2-bench banking_knowledge，30 train / 67 test 自切（无官方 split）
 - 并发：train-parallel 30, test-parallel 30
@@ -256,4 +256,4 @@ banking_knowledge 的失败模式是 interpretation-bound（policy reasoning：d
 - v0 baseline：4/30 train、8/67 test
 - A champion：mh_tau2_iter14_baseline_procedure_sequencing，11/30 train、7/67 test
 - B champion：mh_tau2_iter15_robust_dispute_workflow_corrector，19/30 train、7/67 test
-- 代码、manifest、per-task 数据均在 `meta_harness/logs_tau2_baseline/`、`meta_harness/logs_tau2_robust/`、`agent_tau2/mh_tau2_iter*_*/`、`traces/tau2_*__summary.jsonl`
+- 代码、manifest、per-task 数据均在 `ballast/logs_tau2_baseline/`、`ballast/logs_tau2_robust/`、`agent_tau2/mh_tau2_iter*_*/`、`traces/tau2_*__summary.jsonl`

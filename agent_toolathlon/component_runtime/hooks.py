@@ -43,7 +43,7 @@ from typing import Any, Optional
 from agents import AgentHooks, RunHooks
 
 from agent.llm import chat as _bench_chat
-from meta_harness.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
+from ballast.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
 
 from .policy import validate_decision
 from .types import (

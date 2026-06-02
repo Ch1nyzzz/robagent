@@ -25,8 +25,8 @@ sys.path.insert(0, str(ROOT))
 from agent.component_runtime.types import (  # noqa: E402
     Component, ComponentClass, ComponentContext, Decision, DecisionKind, Trust,
 )
-from meta_harness.component_runtime_core.dispatcher import Dispatcher  # noqa: E402
-from meta_harness.component_runtime_core.event_context import EventContext  # noqa: E402
+from ballast.component_runtime_core.dispatcher import Dispatcher  # noqa: E402
+from ballast.component_runtime_core.event_context import EventContext  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #

@@ -14,7 +14,7 @@ once per task; it:
 Environment-variable contract (mirrors agent_tau2/component_runtime/agent.py):
 
   COMPONENT_WORKFLOW  path to YAML workflow file
-                      (default: meta_harness/workflows/toolathlon_main.yaml)
+                      (default: ballast/workflows/toolathlon_main.yaml)
   COMPONENT_NAMES     comma-separated names; defensive check that the
                       outer loop has the workflow pinned correctly.
                       Empty = trust the workflow YAML.
@@ -54,7 +54,7 @@ def _resolve_workflow_and_components() -> tuple[Workflow, dict[str, Component]]:
 
     workflow_path = Path(os.environ.get(
         "COMPONENT_WORKFLOW",
-        str(ROOT / "meta_harness" / "workflows" / "toolathlon_main.yaml"),
+        str(ROOT / "ballast" / "workflows" / "toolathlon_main.yaml"),
     ))
     if not workflow_path.exists():
         wf = Workflow()

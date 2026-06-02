@@ -4,7 +4,7 @@ Three scopes, increasing cost:
   unit       — run a small list of task_ids (cheap, fast feedback). Traces
                written to traces/unit_test_runs/ so canonical eval data is
                not polluted.
-  train_30   — meta_harness/train_task_ids.txt (deterministic 30-task sample
+  train_30   — ballast/train_task_ids.txt (deterministic 30-task sample
                held out from test-135).
   full_165   — full GAIA validation set. Expensive — call sparingly.
 
@@ -29,8 +29,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TRAIN_IDS = ROOT / "meta_harness" / "train_task_ids.txt"
-TEST_IDS = ROOT / "meta_harness" / "test_task_ids.txt"
+TRAIN_IDS = ROOT / "ballast" / "train_task_ids.txt"
+TEST_IDS = ROOT / "ballast" / "test_task_ids.txt"
 
 
 def _run_subset(

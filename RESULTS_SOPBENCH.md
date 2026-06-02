@@ -30,7 +30,7 @@ All three domains gained ≥20pp test TSR over the v0 baseline. ECR (no-crash ra
 ```
 ┌──────────────────────────────────────────────────┐
 │  Outer evolution loop                            │  one Python process per domain
-│  meta_harness/meta_harness_components_sopbench   │  --domain <slug> --iterations N
+│  ballast/evolve_sopbench   │  --domain <slug> --iterations N
 ├──────────────────────────────────────────────────┤
 │  Per-iter:                                       │
 │    1. proposer (claude opus + SKILL.md)          │  ~$5, ~10 min
@@ -254,12 +254,12 @@ Champion gate uses `≥` (ties accept). Warehouse iter 1–4 stacked 4 component
 
 ```bash
 # baseline (per domain)
-python meta_harness/scripts/run_sopbench_baseline.py \
+python ballast/scripts/run_sopbench_baseline.py \
     --domain <slug> --agent-name v0 --iteration 0 \
     --train-size 30 --max-workers 4 --subsets train,test
 
 # evolution loop
-python meta_harness/meta_harness_components_sopbench.py \
+python ballast/evolve_sopbench.py \
     --domain <slug> --iterations 20 \
     --train-size 30 --train-parallel 4 --final-test
 ```

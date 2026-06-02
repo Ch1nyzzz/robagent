@@ -27,53 +27,53 @@ tau2-runs/
 Toolathlon-runs/
 results/
 
-# --- meta_harness run logs (large: proposer sessions, event streams) ---
-meta_harness/logs/
-meta_harness/logs_*/
-meta_harness/.empty_plugins/
+# --- ballast run logs (large: proposer sessions, event streams) ---
+ballast/logs/
+ballast/logs_*/
+ballast/.empty_plugins/
 
 # keep the lightweight experiment record (frontier + evolution summary)
-!meta_harness/logs_baseline/
-meta_harness/logs_baseline/*
-!meta_harness/logs_baseline/evolution_summary.jsonl
-!meta_harness/logs_baseline/frontier_val.json
-!meta_harness/logs_baseline/split_meta.json
-!meta_harness/logs_robust/
-meta_harness/logs_robust/*
-!meta_harness/logs_robust/evolution_summary.jsonl
-!meta_harness/logs_robust/frontier_val.json
-!meta_harness/logs_robust/split_meta.json
+!ballast/logs_baseline/
+ballast/logs_baseline/*
+!ballast/logs_baseline/evolution_summary.jsonl
+!ballast/logs_baseline/frontier_val.json
+!ballast/logs_baseline/split_meta.json
+!ballast/logs_robust/
+ballast/logs_robust/*
+!ballast/logs_robust/evolution_summary.jsonl
+!ballast/logs_robust/frontier_val.json
+!ballast/logs_robust/split_meta.json
 
 # keep the same lightweight record for the tau2 frontiers and the hook frontier
-!meta_harness/logs_tau2_baseline/
-meta_harness/logs_tau2_baseline/*
-!meta_harness/logs_tau2_baseline/evolution_summary.jsonl
-!meta_harness/logs_tau2_baseline/frontier_val.json
-!meta_harness/logs_tau2_robust/
-meta_harness/logs_tau2_robust/*
-!meta_harness/logs_tau2_robust/evolution_summary.jsonl
-!meta_harness/logs_tau2_robust/frontier_val.json
-!meta_harness/logs_tau2_robust_v3/
-meta_harness/logs_tau2_robust_v3/*
-!meta_harness/logs_tau2_robust_v3/evolution_summary.jsonl
-!meta_harness/logs_tau2_robust_v3/frontier_val.json
-!meta_harness/logs_tau2_hooks/
-meta_harness/logs_tau2_hooks/*
-!meta_harness/logs_tau2_hooks/frontier_hooks.json
-!meta_harness/logs_tau2_hooks/frontier_val.json
-!meta_harness/logs_tau2_hooks/evolution_summary.jsonl
+!ballast/logs_tau2_baseline/
+ballast/logs_tau2_baseline/*
+!ballast/logs_tau2_baseline/evolution_summary.jsonl
+!ballast/logs_tau2_baseline/frontier_val.json
+!ballast/logs_tau2_robust/
+ballast/logs_tau2_robust/*
+!ballast/logs_tau2_robust/evolution_summary.jsonl
+!ballast/logs_tau2_robust/frontier_val.json
+!ballast/logs_tau2_robust_v3/
+ballast/logs_tau2_robust_v3/*
+!ballast/logs_tau2_robust_v3/evolution_summary.jsonl
+!ballast/logs_tau2_robust_v3/frontier_val.json
+!ballast/logs_tau2_hooks/
+ballast/logs_tau2_hooks/*
+!ballast/logs_tau2_hooks/frontier_hooks.json
+!ballast/logs_tau2_hooks/frontier_val.json
+!ballast/logs_tau2_hooks/evolution_summary.jsonl
 
 # component-harness-tau2 graph frontier (lightweight: workflow snapshot +
 # evolution summary; ignore proposer/builder session blobs).
-!meta_harness/logs_tau2_components/
-meta_harness/logs_tau2_components/*
-!meta_harness/logs_tau2_components/frontier_workflow.json
-!meta_harness/logs_tau2_components/frontier_val.json
-!meta_harness/logs_tau2_components/evolution_summary.jsonl
-!meta_harness/logs_tau2_components/pending_eval.json
-!meta_harness/logs_tau2_components/builder_sessions/
-meta_harness/logs_tau2_components/builder_sessions/*
-!meta_harness/logs_tau2_components/builder_sessions/**/log.md
+!ballast/logs_tau2_components/
+ballast/logs_tau2_components/*
+!ballast/logs_tau2_components/frontier_workflow.json
+!ballast/logs_tau2_components/frontier_val.json
+!ballast/logs_tau2_components/evolution_summary.jsonl
+!ballast/logs_tau2_components/pending_eval.json
+!ballast/logs_tau2_components/builder_sessions/
+ballast/logs_tau2_components/builder_sessions/*
+!ballast/logs_tau2_components/builder_sessions/**/log.md
 
 # --- archived candidates / old logs ---
 agent/_archived_*/
@@ -106,57 +106,57 @@ archive_*/                          # local experiment archives (large, not part
 .DS_Store
 
 # component-harness-gaia graph frontier
-!meta_harness/logs_components_gaia/
-meta_harness/logs_components_gaia/*
-!meta_harness/logs_components_gaia/frontier_workflow.json
-!meta_harness/logs_components_gaia/frontier_val.json
-!meta_harness/logs_components_gaia/evolution_summary.jsonl
-!meta_harness/logs_components_gaia/pending_eval.json
-!meta_harness/logs_components_gaia/builder_sessions/
-meta_harness/logs_components_gaia/builder_sessions/*
-!meta_harness/logs_components_gaia/builder_sessions/**/log.md
+!ballast/logs_components_gaia/
+ballast/logs_components_gaia/*
+!ballast/logs_components_gaia/frontier_workflow.json
+!ballast/logs_components_gaia/frontier_val.json
+!ballast/logs_components_gaia/evolution_summary.jsonl
+!ballast/logs_components_gaia/pending_eval.json
+!ballast/logs_components_gaia/builder_sessions/
+ballast/logs_components_gaia/builder_sessions/*
+!ballast/logs_components_gaia/builder_sessions/**/log.md
 
 # component-harness-toolathlon graph frontier
-!meta_harness/logs_components_toolathlon/
-meta_harness/logs_components_toolathlon/*
-!meta_harness/logs_components_toolathlon/frontier_workflow.json
-!meta_harness/logs_components_toolathlon/frontier_val.json
-!meta_harness/logs_components_toolathlon/evolution_summary.jsonl
-!meta_harness/logs_components_toolathlon/pending_eval.json
-!meta_harness/logs_components_toolathlon/proposer_sessions/
-meta_harness/logs_components_toolathlon/proposer_sessions/*
-!meta_harness/logs_components_toolathlon/proposer_sessions/**/log.md
+!ballast/logs_components_toolathlon/
+ballast/logs_components_toolathlon/*
+!ballast/logs_components_toolathlon/frontier_workflow.json
+!ballast/logs_components_toolathlon/frontier_val.json
+!ballast/logs_components_toolathlon/evolution_summary.jsonl
+!ballast/logs_components_toolathlon/pending_eval.json
+!ballast/logs_components_toolathlon/proposer_sessions/
+ballast/logs_components_toolathlon/proposer_sessions/*
+!ballast/logs_components_toolathlon/proposer_sessions/**/log.md
 
 # component-harness-sopbench graph frontier (per domain)
-!meta_harness/logs_components_sopbench_dangerous_goods/
-meta_harness/logs_components_sopbench_dangerous_goods/*
-!meta_harness/logs_components_sopbench_dangerous_goods/frontier_workflow.json
-!meta_harness/logs_components_sopbench_dangerous_goods/frontier_val.json
-!meta_harness/logs_components_sopbench_dangerous_goods/evolution_summary.jsonl
-!meta_harness/logs_components_sopbench_dangerous_goods/pending_eval.json
-!meta_harness/logs_components_sopbench_traffic_spoofing_detection/
-meta_harness/logs_components_sopbench_traffic_spoofing_detection/*
-!meta_harness/logs_components_sopbench_traffic_spoofing_detection/frontier_workflow.json
-!meta_harness/logs_components_sopbench_traffic_spoofing_detection/frontier_val.json
-!meta_harness/logs_components_sopbench_traffic_spoofing_detection/evolution_summary.jsonl
-!meta_harness/logs_components_sopbench_traffic_spoofing_detection/pending_eval.json
-!meta_harness/logs_components_sopbench_warehouse_package_inspection/
-meta_harness/logs_components_sopbench_warehouse_package_inspection/*
-!meta_harness/logs_components_sopbench_warehouse_package_inspection/frontier_workflow.json
-!meta_harness/logs_components_sopbench_warehouse_package_inspection/frontier_val.json
-!meta_harness/logs_components_sopbench_warehouse_package_inspection/evolution_summary.jsonl
-!meta_harness/logs_components_sopbench_warehouse_package_inspection/pending_eval.json
+!ballast/logs_components_sopbench_dangerous_goods/
+ballast/logs_components_sopbench_dangerous_goods/*
+!ballast/logs_components_sopbench_dangerous_goods/frontier_workflow.json
+!ballast/logs_components_sopbench_dangerous_goods/frontier_val.json
+!ballast/logs_components_sopbench_dangerous_goods/evolution_summary.jsonl
+!ballast/logs_components_sopbench_dangerous_goods/pending_eval.json
+!ballast/logs_components_sopbench_traffic_spoofing_detection/
+ballast/logs_components_sopbench_traffic_spoofing_detection/*
+!ballast/logs_components_sopbench_traffic_spoofing_detection/frontier_workflow.json
+!ballast/logs_components_sopbench_traffic_spoofing_detection/frontier_val.json
+!ballast/logs_components_sopbench_traffic_spoofing_detection/evolution_summary.jsonl
+!ballast/logs_components_sopbench_traffic_spoofing_detection/pending_eval.json
+!ballast/logs_components_sopbench_warehouse_package_inspection/
+ballast/logs_components_sopbench_warehouse_package_inspection/*
+!ballast/logs_components_sopbench_warehouse_package_inspection/frontier_workflow.json
+!ballast/logs_components_sopbench_warehouse_package_inspection/frontier_val.json
+!ballast/logs_components_sopbench_warehouse_package_inspection/evolution_summary.jsonl
+!ballast/logs_components_sopbench_warehouse_package_inspection/pending_eval.json
 
 # component-harness-enterpriseops graph frontier (per domain; reserved for future evolution runs)
-!meta_harness/logs_components_enterpriseops_calendar/
-meta_harness/logs_components_enterpriseops_calendar/*
-!meta_harness/logs_components_enterpriseops_calendar/frontier_workflow.json
-!meta_harness/logs_components_enterpriseops_calendar/frontier_val.json
-!meta_harness/logs_components_enterpriseops_calendar/evolution_summary.jsonl
-!meta_harness/logs_components_enterpriseops_calendar/pending_eval.json
-!meta_harness/logs_components_enterpriseops_itsm/
-meta_harness/logs_components_enterpriseops_itsm/*
-!meta_harness/logs_components_enterpriseops_itsm/frontier_workflow.json
-!meta_harness/logs_components_enterpriseops_itsm/frontier_val.json
-!meta_harness/logs_components_enterpriseops_itsm/evolution_summary.jsonl
-!meta_harness/logs_components_enterpriseops_itsm/pending_eval.json
+!ballast/logs_components_enterpriseops_calendar/
+ballast/logs_components_enterpriseops_calendar/*
+!ballast/logs_components_enterpriseops_calendar/frontier_workflow.json
+!ballast/logs_components_enterpriseops_calendar/frontier_val.json
+!ballast/logs_components_enterpriseops_calendar/evolution_summary.jsonl
+!ballast/logs_components_enterpriseops_calendar/pending_eval.json
+!ballast/logs_components_enterpriseops_itsm/
+ballast/logs_components_enterpriseops_itsm/*
+!ballast/logs_components_enterpriseops_itsm/frontier_workflow.json
+!ballast/logs_components_enterpriseops_itsm/frontier_val.json
+!ballast/logs_components_enterpriseops_itsm/evolution_summary.jsonl
+!ballast/logs_components_enterpriseops_itsm/pending_eval.json

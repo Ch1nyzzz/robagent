@@ -51,7 +51,7 @@ def test_gaia_demo_loads_and_passes_policy():
 def test_gaia_demo_fires_via_dispatcher_with_stubbed_chat():
     """End-to-end: build a Dispatcher with the demo, emit on_empty_response,
     verify ctx.chat is invoked and Decision.rewrite lands raw_response."""
-    from meta_harness.component_runtime_core.dispatcher import Dispatcher
+    from ballast.component_runtime_core.dispatcher import Dispatcher
     from agent.component_runtime.policy import validate_decision
     from agent.component_runtime.types import (
         ComponentContext, DecisionKind,

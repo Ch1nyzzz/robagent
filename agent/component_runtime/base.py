@@ -16,7 +16,7 @@ one row per fire to `.component-state/<run_tag>/fired.jsonl` for the
 durability audit.
 
 Workflow source on disk:
-  meta_harness/workflows/gaia_main.yaml  (default; override via COMPONENT_WORKFLOW)
+  ballast/workflows/gaia_main.yaml  (default; override via COMPONENT_WORKFLOW)
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from agent.base import (
 from agent.events import EventLog, new_run_id, traces_dir
 from agent.llm import chat, DEFAULT_MODEL
 from agent.tools import TOOL_SPECS, dispatch_tool
-from meta_harness.component_runtime_core.dispatcher import Dispatcher
+from ballast.component_runtime_core.dispatcher import Dispatcher
 
 from .policy import ComponentPolicyError, validate_decision
 from .registry import COMPONENTS_DIR_DEFAULT, load_components_from_dir
@@ -48,7 +48,7 @@ from .workflow import Workflow
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_WORKFLOW = ROOT / "meta_harness" / "workflows" / "gaia_main.yaml"
+DEFAULT_WORKFLOW = ROOT / "ballast" / "workflows" / "gaia_main.yaml"
 
 # SYSTEM_PROMPT, MAX_ITERATIONS, PER_TURN_MAX_TOKENS, _extract_final_answer
 # imported from agent.base — single source of truth so the component runtime

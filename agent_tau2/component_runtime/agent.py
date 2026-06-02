@@ -56,7 +56,7 @@ from tau2.data_model.message import (
 )
 
 from agent.llm import chat as _bench_chat
-from meta_harness.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
+from ballast.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
 
 from .policy import ComponentPolicyError, validate_decision
 from .registry import COMPONENTS_DIR_DEFAULT, load_components_from_dir
@@ -512,10 +512,10 @@ def build_agent(tools, domain_policy, **kwargs):
     """tau2 candidate entry. Identical signature to agent_tau2/v0/agent.py.
 
     Active component set is selected via env vars (set by
-    meta_harness_components.py):
+    evolve_tau2.py):
 
       COMPONENT_WORKFLOW  path to YAML workflow file
-                          (default: meta_harness/workflows/tau2_main.yaml)
+                          (default: ballast/workflows/tau2_main.yaml)
       COMPONENT_NAMES     comma-separated names; defensive check that the
                           outer loop has the workflow pinned correctly.
                           Empty = trust the workflow YAML.
@@ -536,7 +536,7 @@ def build_agent(tools, domain_policy, **kwargs):
     else:
         workflow_path = Path(os.environ.get(
             "COMPONENT_WORKFLOW",
-            str(ROOT / "meta_harness" / "workflows" / "tau2_main.yaml"),
+            str(ROOT / "ballast" / "workflows" / "tau2_main.yaml"),
         ))
         if not workflow_path.exists():
             wf = Workflow()

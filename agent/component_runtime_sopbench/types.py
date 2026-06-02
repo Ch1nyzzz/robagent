@@ -23,7 +23,7 @@ from typing import Any, Callable, Optional
 # Shared-across-siblings types: lifted to the unified core in Phase A of
 # the event-runtime migration. ComponentClass / Trust are byte-identical
 # (5/5 siblings) so they only live in one place now.
-from meta_harness.component_runtime_core.shared_types import (
+from ballast.component_runtime_core.shared_types import (
     ComponentClass,
     Trust,
 )
@@ -32,7 +32,7 @@ from meta_harness.component_runtime_core.shared_types import (
 # owns the cross-event scratchpads (shared / state / persistent_state /
 # upstream), blocked-state flags, and the `_impl_*` hooks the per-bench
 # dispatcher wires at construction time.
-from meta_harness.component_runtime_core.event_context import EventContext
+from ballast.component_runtime_core.event_context import EventContext
 
 
 # --- enums -------------------------------------------------------------------

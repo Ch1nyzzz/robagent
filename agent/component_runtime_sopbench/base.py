@@ -6,7 +6,7 @@ that SopBenchAgent.execute() calls at each Mount in its FC loop. The agent
 owns the loop; the dispatcher owns the policy + mutation logic.
 
 Workflow source on disk:
-  meta_harness/workflows/sopbench_<domain>.yaml  (override with
+  ballast/workflows/sopbench_<domain>.yaml  (override with
   `SOPBENCH_COMPONENT_WORKFLOW` env var)
 
 Active component set = workflow's `active_nodes()`. The outer loop keeps
@@ -22,7 +22,7 @@ from threading import Lock
 from typing import Optional
 
 from agent.llm import chat as _bench_chat
-from meta_harness.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
+from ballast.component_runtime_core.dispatcher import Dispatcher as _CoreDispatcher
 
 from .policy import ComponentPolicyError, validate_decision
 from .registry import COMPONENTS_DIR_DEFAULT, load_components_from_dir

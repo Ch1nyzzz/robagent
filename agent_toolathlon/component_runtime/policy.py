@@ -15,7 +15,7 @@ still mention them.
 """
 from __future__ import annotations
 
-from meta_harness.component_runtime_core.policy import (  # noqa: F401
+from ballast.component_runtime_core.policy import (  # noqa: F401
     ComponentPolicyError,
     validate_decision as _core_validate_decision,
     validate_registration as _core_validate_registration,

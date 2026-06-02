@@ -8,7 +8,7 @@ registration against the class×mount permission matrix plus the trust
 profile.
 
 Refactored in Phase A of the event-runtime migration to delegate the
-file-loading bit to `meta_harness.component_runtime_core.registry`.
+file-loading bit to `ballast.component_runtime_core.registry`.
 Per-sibling behaviour (Mount groupby, ALLOWED policy validation) stays
 here.
 """
@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from meta_harness.component_runtime_core.registry import load_module_from_path
+from ballast.component_runtime_core.registry import load_module_from_path
 
 from .policy import validate_registration, validate_trust
 from .types import Component

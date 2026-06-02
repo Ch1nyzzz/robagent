@@ -2,12 +2,12 @@
 
 Phase A of the event-runtime migration extracted the byte-identical
 sibling workflow.py implementations into
-`meta_harness.component_runtime_core.workflow`. This shim keeps the
+`ballast.component_runtime_core.workflow`. This shim keeps the
 existing import surface (`from agent.component_runtime.workflow import
 Workflow, Patch, ...`) intact so callers across `agent/`,
-`meta_harness/`, and the proposer prompts don't need to change.
+`ballast/`, and the proposer prompts don't need to change.
 """
-from meta_harness.component_runtime_core.workflow import (  # noqa: F401
+from ballast.component_runtime_core.workflow import (  # noqa: F401
     Edge,
     FrontierSnapshot,
     Patch,
