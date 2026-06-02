@@ -209,7 +209,7 @@ def run_proposer(iteration: int, log_dir: Path, skill_name: str,
             disable_mcp=True,
             progress=True,
             docker_skill=skill_name,
-            docker_container_name=f"robagent-proposer-gaia-iter{iteration}-"
+            docker_container_name=f"ballast-proposer-gaia-iter{iteration}-"
                                   f"{int(time.time())}",
         )
         print(f"  attempt {attempt}/{max_attempts}: exit={result.exit_code} "

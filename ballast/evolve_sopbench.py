@@ -272,7 +272,7 @@ def run_proposer(iteration: int, log_dir: Path, skill_name: str) -> dict:
             progress=True,
             docker_skill=skill_name,
             docker_domain=DOMAIN,
-            docker_container_name=f"robagent-proposer-sopbench-{DOMAIN}-"
+            docker_container_name=f"ballast-proposer-sopbench-{DOMAIN}-"
                                   f"iter{iteration}-{int(time.time())}",
         )
         print(f"  attempt {attempt}/{max_attempts}: exit={result.exit_code} "

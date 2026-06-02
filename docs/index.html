@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>robagent · lifecycle-event stabilization of LLM agents</title>
+<title>Ballast · lifecycle-event stabilization of LLM agents</title>
 <style>
   :root {
     --bg: #f5f5f5;
@@ -239,7 +239,7 @@
 <div class="wrap">
 
 <nav class="toc" aria-label="目录">
-  <a class="brand" href="#top">robagent <span class="v">/ docs</span></a>
+  <a class="brand" href="#top">Ballast <span class="v">/ docs</span></a>
   <ol>
     <li><a href="#tldr">TL;DR</a></li>
     <li><a href="#results">实验结果</a>
@@ -268,7 +268,7 @@
 <main id="top">
 
 <h1>
-  <span class="tag">robagent · 2026-05-27</span>
+  <span class="tag">Ballast · 2026-05-27</span>
   Lifecycle-event stabilization of LLM agents
 </h1>
 <p class="lede">
@@ -276,14 +276,14 @@
   外层用一个 coding agent 自动迭代这些 hook —— 在 SOPbench、EnterpriseOps、GAIA 上
   各跑 10 iter，最高在 SOPbench/dangerous_goods 把 held-out test 从 72.95% 推到 96.31%。
 </p>
-<p class="meta">repo: <a href="https://github.com/Ch1nyzzz/robagent">github.com/Ch1nyzzz/robagent</a> · SUT: deepseek-v4-pro / deepseek-chat / deepseek-v4-flash · proposer: claude-opus</p>
+<p class="meta">repo: <a href="https://github.com/Ch1nyzzz/ballast">github.com/Ch1nyzzz/ballast</a> · SUT: deepseek-v4-pro / deepseek-chat / deepseek-v4-flash · proposer: claude-opus</p>
 
 <!-- ============================================================== -->
 <h2 id="tldr">TL;DR</h2>
 <p>
   主流"agent 系统"要么是 <em>一个 LLM 在 while-loop 里改进自己</em>，要么是
   <em>一张静态的 multi-agent graph</em>。两者都把 LLM 当作不可分割的黑箱。
-  robagent 的赌注是第三条路：
+  Ballast 的赌注是第三条路：
 </p>
 <ol>
   <li>把 capability（能不能做到）和 stabilization（做了能不能稳）严格分开。</li>
@@ -474,7 +474,7 @@
 <!-- ============================================================== -->
 <h2 id="lifecycle">Lifecycle 订阅机制</h2>
 <p>
-  这是 robagent 区别于其他 agent framework 的核心。下面四节按
+  这是 Ballast 区别于其他 agent framework 的核心。下面四节按
   <em>为什么 → 有哪些 event → 怎么写 hook → 怎么被拒</em> 的顺序展开。
 </p>
 
@@ -486,7 +486,7 @@
   问题是 node 会接管"做决定"的位置，把主 agent 稀释成 LLM oracle。
 </p>
 <p>
-  robagent 用 hook：主 agent 该跑的还是跑，hook 只在 <strong>已经发生的事件</strong>
+  Ballast 用 hook：主 agent 该跑的还是跑，hook 只在 <strong>已经发生的事件</strong>
   上插一脚。每个事件都对应主 agent loop 里一个具体的代码位置，dispatcher
   在那里 fire 一次，订阅了这个事件的 component 按 priority 排队跑，
   返回的 Decision 改 <code>ctx</code>。
@@ -697,7 +697,7 @@ COMPONENT = Component(
       <th></th>
       <th>LangGraph / 经典 multi-agent</th>
       <th>auto-prompt / DSPy 优化器</th>
-      <th>robagent</th>
+      <th>Ballast</th>
     </tr>
   </thead>
   <tbody>
@@ -758,8 +758,8 @@ python ballast/evolve_enterpriseops.py \
 </ul>
 
 <footer>
-  robagent · single-page docs · 2026-05-27 ·
-  <a href="https://github.com/Ch1nyzzz/robagent">source on github</a>
+  Ballast · single-page docs · 2026-05-27 ·
+  <a href="https://github.com/Ch1nyzzz/ballast">source on github</a>
 </footer>
 
 </main>
