@@ -6,19 +6,19 @@
       "verifier_pass_rate": 1.0
     },
     "task_20251223_064316_340_01395ded_9c6f3e01": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.75
+      "agent": "candidate_iter4_notification_type_report_only",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20251221_222834_884_97d7df7d_c088062a": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.6666666666666666
+      "agent": "candidate_iter2_itsm_api_cheatsheet",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20251218_183102_136_391f1eff_ac9a6986": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.0
+      "agent": "candidate_iter2_itsm_api_cheatsheet",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20251218_171924_336_ad5a67e3_af252cf6": {
       "agent": "v0",
@@ -46,9 +46,9 @@
       "verifier_pass_rate": 0.6666666666666666
     },
     "task_20251223_224508_138_97d7df7d_b4505336": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.5
+      "agent": "candidate_iter7_use_its_id_regex_fix",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20260113_182216_716_a8eea1c0_7a0619e9": {
       "agent": "v0",
@@ -101,9 +101,9 @@
       "verifier_pass_rate": 0.6666666666666666
     },
     "task_20260112_181636_272_c4ad7a70_c9cdfa29": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.5
+      "agent": "candidate_iter1_priority_matrix_fill",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20251217_211242_026_391f1eff_27934d6b": {
       "agent": "v0",
@@ -126,9 +126,9 @@
       "verifier_pass_rate": 1.0
     },
     "task_20251222_133355_087_30600918_e9215c57": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.75
+      "agent": "candidate_iter2_itsm_api_cheatsheet",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20251212_184405_886_e6427839_6413728a": {
       "agent": "v0",
@@ -152,9 +152,9 @@
     }
   },
   "frontier_score": {
-    "correct": 10,
+    "correct": 16,
     "total": 30,
-    "acc": 0.3333
+    "acc": 0.5333
   },
-  "updated_at": "2026-05-26T05:32:41.273002+00:00"
+  "updated_at": "2026-05-27T04:03:16.938468+00:00"
 }

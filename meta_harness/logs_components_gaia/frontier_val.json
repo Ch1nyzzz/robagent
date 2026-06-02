@@ -1,160 +1,160 @@
 {
   "per_task": {
-    "e4e91f1c-1dcd-439e-9fdd-cb976f5293fd": {
-      "agent": "component_iter2_larger_recovery_budget",
+    "ad37a656-079a-49f9-a493-7b739c9167d1": {
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 1.0,
-      "answer": "cloak"
+      "answer": "Bravo"
+    },
+    "6f37996b-2ac7-44b0-8e68-6d28256631b4": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "b, e"
+    },
+    "bec74516-02fc-48dc-b202-55e78d0e17cf": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 0.0,
+      "answer": "46.4"
     },
     "ec09fa32-d03f-4bf8-84b0-1f16922c3ae4": {
-      "agent": "component_iter13_base_ddc_channel",
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 1.0,
       "answer": "3"
     },
-    "16d825ff-1623-4176-a5b5-42e0f5c2b0ac": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": "5:30 PM"
-    },
-    "e142056d-56ab-4352-b091-b56054bd1359": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": null
-    },
-    "544b7f0c-173a-4377-8d56-57b36eb26ddf": {
-      "agent": "v0",
-      "score": 1.0,
-      "answer": "A Nightmare on Elm Street"
-    },
-    "4d0aa727-86b1-406b-9b33-f870dd14a4a5": {
-      "agent": "component_iter3_progressive_recovery_budget",
-      "score": 1.0,
-      "answer": "1 in 3"
-    },
-    "0ff53813-3367-4f43-bcbd-3fd725c1bf4b": {
-      "agent": "component_iter2_larger_recovery_budget",
-      "score": 1.0,
-      "answer": "beta geometric"
-    },
-    "bec74516-02fc-48dc-b202-55e78d0e17cf": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": "0"
-    },
-    "853c8244-429e-46ca-89f2-addf40dfb2bd": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": null
-    },
-    "e961a717-6b25-4175-8a68-874d28190ee4": {
-      "agent": "component_iter1_length_recovery",
-      "score": 1.0,
-      "answer": "12"
-    },
-    "0512426f-4d28-49f0-be77-06d05daec096": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": ""
-    },
-    "ed58682d-bc52-4baa-9eb0-4eb81e1edacc": {
-      "agent": "component_iter2_larger_recovery_budget",
-      "score": 1.0,
-      "answer": "stare"
-    },
-    "48eb8242-1099-4c26-95d4-ef22b002457a": {
-      "agent": "component_iter7_cuneiform_decoder",
-      "score": 1.0,
-      "answer": "6"
-    },
-    "0b260a57-3f3a-4405-9f29-6d7a1012dbfb": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": ""
-    },
     "50ec8903-b81f-4257-9450-1085afd2c319": {
-      "agent": "component_iter3_progressive_recovery_budget",
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 1.0,
       "answer": "green, white"
     },
     "0bb3b44a-ede5-4db5-a520-4e844b0079c5": {
-      "agent": "component_iter8_cuneiform_extended_naming",
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 1.0,
       "answer": "536"
     },
-    "9b54f9d9-35ee-4a14-b62f-d130ea00317f": {
-      "agent": "component_iter7_cuneiform_decoder",
+    "114d5fd0-e2ae-4b6d-a65a-870da2d19c08": {
+      "agent": "candidate_iter5_exhaustion_recovery_with_history",
       "score": 1.0,
-      "answer": "Soups and Stews"
+      "answer": "4"
+    },
+    "544b7f0c-173a-4377-8d56-57b36eb26ddf": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "A Nightmare on Elm Street"
     },
     "27d5d136-8563-469e-92bf-fd103c28b57c": {
-      "agent": "v0",
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 1.0,
       "answer": "(\u00acA \u2192 B) \u2194 (A \u2228 \u00acB)"
     },
-    "5f982798-16b9-4051-ab57-cfc7ebdb2a91": {
-      "agent": "v0",
+    "0ff53813-3367-4f43-bcbd-3fd725c1bf4b": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "beta geometric"
+    },
+    "853c8244-429e-46ca-89f2-addf40dfb2bd": {
+      "agent": "candidate_iter2_turn_budget_warner",
+      "score": 1.0,
+      "answer": "11"
+    },
+    "05407167-39ec-4d3a-a234-73a9120c325d": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "Format Document"
+    },
+    "872bfbb1-9ccf-49f6-8c5f-aa22818ccd66": {
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 0.0,
-      "answer": ""
+      "answer": "pears, grapes, peaches, plums, apples"
     },
     "3cef3a44-215e-4aed-8e3b-b1e3f08063b7": {
-      "agent": "v0",
+      "agent": "candidate_iter3_final_turn_commit_notice",
       "score": 1.0,
       "answer": "broccoli, celery, fresh basil, lettuce, sweet potatoes"
     },
-    "ad37a656-079a-49f9-a493-7b739c9167d1": {
-      "agent": "component_iter1_length_recovery",
-      "score": 1.0,
-      "answer": "Bravo"
-    },
-    "72e110e7-464c-453c-a309-90a95aed6538": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": "Brazil"
-    },
     "7d4a7d1d-cac6-44a8-96e8-ea9584a70825": {
-      "agent": "component_iter7_cuneiform_decoder",
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 1.0,
       "answer": "22"
     },
-    "0a65cb96-cb6e-4a6a-8aae-c1084f613456": {
-      "agent": "component_iter2_larger_recovery_budget",
-      "score": 1.0,
-      "answer": "Holabird"
-    },
-    "dc28cf18-6431-458b-83ef-64b3ce566c10": {
-      "agent": "component_iter2_larger_recovery_budget",
-      "score": 1.0,
-      "answer": "2"
-    },
-    "872bfbb1-9ccf-49f6-8c5f-aa22818ccd66": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": ""
-    },
-    "114d5fd0-e2ae-4b6d-a65a-870da2d19c08": {
-      "agent": "v0",
-      "score": 0.0,
-      "answer": "15"
-    },
-    "6f37996b-2ac7-44b0-8e68-6d28256631b4": {
-      "agent": "v0",
-      "score": 1.0,
-      "answer": "b, e"
-    },
     "08c0b6e9-1b43-4c2e-ae55-4e3fce2c2715": {
-      "agent": "component_iter16_orcid_pre2020_channel",
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 1.0,
       "answer": "orange, white"
     },
-    "05407167-39ec-4d3a-a234-73a9120c325d": {
-      "agent": "v0",
+    "48eb8242-1099-4c26-95d4-ef22b002457a": {
+      "agent": "candidate_iter1_exhaustion_recovery",
       "score": 0.0,
-      "answer": "Remove Empty Lines"
+      "answer": "0"
+    },
+    "72e110e7-464c-453c-a309-90a95aed6538": {
+      "agent": "candidate_iter5_exhaustion_recovery_with_history",
+      "score": 1.0,
+      "answer": "Guatemala"
+    },
+    "9b54f9d9-35ee-4a14-b62f-d130ea00317f": {
+      "agent": "candidate_iter4_length_recovery_with_history",
+      "score": 1.0,
+      "answer": "Soups and Stews"
+    },
+    "e4e91f1c-1dcd-439e-9fdd-cb976f5293fd": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "cloak"
+    },
+    "0a65cb96-cb6e-4a6a-8aae-c1084f613456": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "Holabird"
+    },
+    "e961a717-6b25-4175-8a68-874d28190ee4": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "12"
+    },
+    "16d825ff-1623-4176-a5b5-42e0f5c2b0ac": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 0.0,
+      "answer": "7:30 AM"
+    },
+    "0512426f-4d28-49f0-be77-06d05daec096": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "100000000"
+    },
+    "0b260a57-3f3a-4405-9f29-6d7a1012dbfb": {
+      "agent": "candidate_iter8_answer_markdown_strip",
+      "score": 1.0,
+      "answer": "0.269"
+    },
+    "5f982798-16b9-4051-ab57-cfc7ebdb2a91": {
+      "agent": "candidate_iter3_final_turn_commit_notice",
+      "score": 1.0,
+      "answer": "0.2"
+    },
+    "ed58682d-bc52-4baa-9eb0-4eb81e1edacc": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "stare"
+    },
+    "dc28cf18-6431-458b-83ef-64b3ce566c10": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "2"
+    },
+    "e142056d-56ab-4352-b091-b56054bd1359": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 0.0,
+      "answer": ""
+    },
+    "4d0aa727-86b1-406b-9b33-f870dd14a4a5": {
+      "agent": "candidate_iter1_exhaustion_recovery",
+      "score": 1.0,
+      "answer": "1 in 3"
     }
   },
   "frontier_score": {
-    "correct": 19,
+    "correct": 25,
     "total": 30,
-    "acc": 0.6333
+    "acc": 0.8333
   },
-  "updated_at": "2026-05-25T04:49:51.489213+00:00"
+  "updated_at": "2026-05-26T09:07:16.905631+00:00"
 }

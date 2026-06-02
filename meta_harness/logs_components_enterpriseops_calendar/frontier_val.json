@@ -11,9 +11,9 @@
       "verifier_pass_rate": 1.0
     },
     "task_20251203_091910_549_bca89e7d_de59e44a": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.6666666666666666
+      "agent": "candidate_iter2_event_time_reading_rule",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20260121_171247_475_cbcf38f8_c0a86487": {
       "agent": "v0",
@@ -26,9 +26,9 @@
       "verifier_pass_rate": 1.0
     },
     "task_20260108_182727_772_4608325d_60b7f5d9": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.6666666666666666
+      "agent": "candidate_iter1_gcal_api_cheatsheet",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20260105_140440_086_e0ac0c6d_27ecac16": {
       "agent": "v0",
@@ -51,7 +51,7 @@
       "verifier_pass_rate": 1.0
     },
     "task_20260104_143530_440_6f5b66fc_b6b24e96": {
-      "agent": "v0",
+      "agent": "candidate_iter1_gcal_api_cheatsheet",
       "score": 1.0,
       "verifier_pass_rate": 1.0
     },
@@ -61,9 +61,9 @@
       "verifier_pass_rate": 1.0
     },
     "task_20251202_190412_439_e81f6083_83a8a0ca": {
-      "agent": "v0",
-      "score": 0.0,
-      "verifier_pass_rate": 0.4
+      "agent": "candidate_iter2_event_time_reading_rule",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
     },
     "task_20260105_124102_961_e0ac0c6d_0b196906": {
       "agent": "v0",
@@ -71,7 +71,7 @@
       "verifier_pass_rate": 1.0
     },
     "task_20260122_024556_370_38405923_1a174d84": {
-      "agent": "v0",
+      "agent": "candidate_iter3_create_event_idempotence",
       "score": 1.0,
       "verifier_pass_rate": 1.0
     },
@@ -83,7 +83,7 @@
     "task_20251204_191200_036_e81f6083_95fa872f": {
       "agent": "v0",
       "score": 0.0,
-      "verifier_pass_rate": 0.7142857142857143
+      "verifier_pass_rate": 0.8571428571428571
     },
     "task_20260106_114228_782_79b3b025_b556c84d": {
       "agent": "v0",
@@ -96,15 +96,65 @@
       "verifier_pass_rate": 0.0
     },
     "task_20260107_104648_226_df2c536d_860ba76c": {
+      "agent": "candidate_iter9_description_add_quoted_normalize",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251204_115043_305_e81f6083_4acfd9ea": {
+      "agent": "candidate_iter2_event_time_reading_rule",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260105_163511_384_79b3b025_1ff6d0c6": {
+      "agent": "candidate_iter1_gcal_api_cheatsheet",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260105_101355_392_e0ac0c6d_4d94d938": {
       "agent": "v0",
       "score": 0.0,
-      "verifier_pass_rate": 0.6666666666666666
+      "verifier_pass_rate": 0.16666666666666666
+    },
+    "task_20260106_152415_149_6f5b66fc_aad3df17": {
+      "agent": "candidate_iter3_create_event_idempotence",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260107_093643_038_df2c536d_f90fd06e": {
+      "agent": "candidate_iter4_attendee_field_completion",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260121_214553_691_cbcf38f8_abce7315": {
+      "agent": "candidate_iter1_gcal_api_cheatsheet",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20260106_143218_938_79b3b025_ce953a94": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.42857142857142855
+    },
+    "task_20260106_103319_873_baf0b358_69ce7445": {
+      "agent": "v0",
+      "score": 1.0,
+      "verifier_pass_rate": 1.0
+    },
+    "task_20251203_194320_796_df2c536d_c885488e": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.5
+    },
+    "task_20251124_112741_995_0a0bf089_3906a767": {
+      "agent": "v0",
+      "score": 0.0,
+      "verifier_pass_rate": 0.8
     }
   },
   "frontier_score": {
-    "correct": 12,
-    "total": 20,
-    "acc": 0.6
+    "correct": 22,
+    "total": 30,
+    "acc": 0.7333
   },
-  "updated_at": "2026-05-26T05:32:35.264782+00:00"
+  "updated_at": "2026-05-27T06:38:02.120861+00:00"
 }

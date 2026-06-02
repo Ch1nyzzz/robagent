@@ -1,5 +1,8 @@
 nodes:
   - length_recovery_guard
   - cuneiform_numeric_decoder
+  - exhaustion_answer_recovery
+  - final_turn_commit_notice
+  - answer_markdown_strip
 edges: []
 disabled: []

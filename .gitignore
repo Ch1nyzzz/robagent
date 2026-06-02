@@ -14,16 +14,18 @@ venv/
 *.egg-info/
 
 # --- vendored / cloned external repos ---
+# nested upstream git repos (EnterpriseOps-Gym, SOP-Bench, ...) — clone/install locally; do not vendor
 tau2-bench-src/
 google-cloud-sdk/
 Toolathlon-src/
-third_party/                          # nested upstream git repos (EnterpriseOps-Gym, SOP-Bench, ...) — clone/install locally; do not vendor
+third_party/
 
 # --- run data / traces (large, regenerable) ---
+# results/ holds sopbench / enterpriseops ad-hoc evaluation csv/json outputs
 traces/
 tau2-runs/
 Toolathlon-runs/
-results/                              # sopbench / enterpriseops ad-hoc evaluation csv/json outputs
+results/
 
 # --- meta_harness run logs (large: proposer sessions, event streams) ---
 meta_harness/logs/
@@ -82,6 +84,10 @@ archive_*/                          # local experiment archives (large, not part
 .component-state/
 .component-state-toolathlon/
 .component-state-sopbench/
+.component-state-enterpriseops/
+
+# --- local Claude Code config / scheduled-task locks (machine-specific) ---
+.claude/
 
 # --- credentials (never commit) ---
 .gcloud_config/
